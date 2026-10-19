@@ -61,9 +61,33 @@ test('answers require existing sources and exact evidence; invented links fail c
   assert.match(gas.validateAnswer_(valid, hits).answer, /資料來源：專案作品/);
   assert.equal(gas.validateAnswer_({ grounded: false, answer: '資料不足', evidence: [] }, hits).reason, 'INSUFFICIENT_EVIDENCE');
   for (const change of [
-    { evidence: [] }, { evidence: [null] }, { evidence: [{ id: 'S9', quote: '建立資料分析報表' }] },
-    { evidence: [{ id: 'S1', quote: '年薪三百萬' }] }, { answer: '作品 https://invented.example.test' }
+    { evidence: [] }, { evidence: [null] }, { evidence: [{ id: 'S1', quote: '年薪三百萬' }] },
+    { answer: '作品 https://invented.example.test' }
   ]) assert.throws(() => gas.validateAnswer_({ ...valid, ...change }, hits), /ANSWER_/);
+});
+
+test('model quotes that only change spacing, width, quote marks or join passages still count as verbatim', () => {
+  const { gas } = createGas();
+  const hits = [
+    { id: 'S1', section: '專案二：每週營運報表自動化', text: '測試成果：連續十二次週報測試，單次平均處理時間由九十分鐘降為十五分鐘。\n使用技術：Python、pandas、Google Sheets。' },
+    { id: 'S2', section: '專業技能', text: 'Python：使用 pandas 整理 CSV 與 Excel 資料。' }
+  ];
+  const answer = quotes => gas.validateAnswer_({ grounded: true, answer: '有報表自動化經驗。',
+    evidence: quotes.map(([id, quote]) => ({ id, quote })) }, hits);
+  for (const quote of [
+    'Python:使用pandas整理CSV與Excel資料',        // dropped CJK/Latin spaces, half-width colon
+    '「使用 pandas 整理 CSV」',                    // added quote marks
+    'Ｐｙｔｈｏｎ：使用 pandas'                     // full-width Latin
+  ]) assert.match(answer([['S2', quote]]).answer, /資料來源：專業技能$/);
+  assert.match(answer([['S1', '連續十二次週報測試……降為十五分鐘']]).answer, /專案二/);
+  assert.match(answer([['S1', '每週營運報表自動化']]).answer, /專案二/, 'section headings are document text');
+  assert.match(answer([['S1', '使用 pandas 整理 CSV']]).answer, /資料來源：專業技能$/, 'a wrong id is re-attributed');
+  for (const quote of [
+    '降為十五分鐘……連續十二次',   // passages out of order
+    '連續…測試',                   // fragments too short to be evidence
+    '平均處理時間縮短一半',         // paraphrase
+    '   '
+  ]) assert.throws(() => answer([['S1', quote]]), /ANSWER_INVALID_EVIDENCE/, quote);
 });
 
 test('index lifecycle embeds only public facts, reuses unchanged index, and revokes removed content', () => {

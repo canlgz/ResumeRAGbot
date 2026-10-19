@@ -132,6 +132,29 @@ test('the actual single-file installer completes a fresh student flow through re
   assert.equal(state.createdDocuments.length, 1);
 });
 
+test('a failed testResumeAnswer is explained and checkSetup stops repeating the same advice once it passes', () => {
+  const { gas, state } = createGas({ sourceMode: 'bundle', properties: { RESUME_DOC_ID: '', WEBHOOK_TOKEN: '' } });
+  let quote = '這段文字不在履歷裡面';
+  state.response = call => {
+    if (call.url.endsWith(':batchEmbedContents')) return { body: { embeddings: call.body.requests.map(() => ({ values: unitVector() })) } };
+    if (call.url.endsWith(':embedContent')) return { body: { embedding: { values: unitVector() } } };
+    return { body: { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({
+      grounded: true, answer: '陳沐言是 AI 自動化工程師。', evidence: [{ id: 'S1', quote }] }) }] } }] } };
+  };
+  gas.initializeProject();
+  gas.syncKnowledgeBase();
+  const advice = () => [...gas.checkSetup().nextSteps].filter(step => step.includes('testResumeAnswer'));
+  assert.deepEqual(advice(), ['執行 testResumeAnswer，核對 Gemini 真實回答與來源。']);
+  assert.throws(() => gas.testResumeAnswer(), /ANSWER_INVALID_EVIDENCE/);
+  assert(state.logs.some(log => /testResumeAnswer 未通過（ANSWER_INVALID_EVIDENCE）：.*不代表履歷沒有相關資料/.test(log)));
+  assert.equal(gas.checkSetup().answerTest, 'ANSWER_INVALID_EVIDENCE');
+  assert.match(advice()[0], /上次 testResumeAnswer 未通過（ANSWER_INVALID_EVIDENCE）.*再執行一次/);
+  quote = '職涯定位:AI應用與流程自動化工程師';
+  assert.match(gas.testResumeAnswer(), /資料來源：個人介紹/);
+  assert.equal(gas.checkSetup().answerTest, 'OK');
+  assert.deepEqual(advice(), []);
+});
+
 test('the offline installation page contains exact copyable code and manifest', async () => {
   const [html, code, manifest, packageText] = await Promise.all([
     readFile(new URL('../START_HERE.html', import.meta.url), 'utf8'),

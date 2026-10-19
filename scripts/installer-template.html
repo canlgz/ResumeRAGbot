@@ -135,7 +135,7 @@
   <section class="step">
     <span class="number">步驟 5</span><h2>同步履歷並確認 AI 能回答</h2>
     <p>依序在函式下拉選單選擇並執行 syncKnowledgeBase → checkSetup → testResumeAnswer。這裡會使用自己的 Gemini API 配額，先保留模擬資料測試即可。</p>
-    <div class="success">完成判斷：document 與 index 都是 ready，testResumeAnswer 能根據文件回答並附來源。若有錯誤，先按照 checkSetup 的「下一步」處理，不必急著部署。</div>
+    <div class="success">完成判斷：document 與 index 都是 ready，testResumeAnswer 能根據文件回答並附來源，再執行 checkSetup 時 answerTest 為 OK。若出現 ANSWER_ 開頭的錯誤，代表 AI 回答沒通過來源檢查，不是履歷缺資料，可再執行一次；其他錯誤先按照 checkSetup 的「下一步」處理，不必急著部署。</div>
   </section>
 
   <section class="step">
