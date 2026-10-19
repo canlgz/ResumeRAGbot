@@ -6,7 +6,7 @@
 
 ## 學生從這裡開始
 
-- **[下載最新安裝包](https://github.com/canlgz/ResumeRAGbot/releases/latest)**：全部解壓縮後，用瀏覽器開啟根目錄的 **START_HERE.html**，按鈕可複製程式與 manifest，逐階段確認結果。
+- **[下載最新安裝包](https://github.com/canlgz/ResumeRAGbot/releases/latest)**：全部解壓縮後，用瀏覽器開啟資料夾裡和 README.md 放在一起的 **START_HERE.html**，按鈕可複製程式與 manifest，逐階段確認結果。
 - **[詳細安裝說明](docs/部署指南.md)**：瀏覽器操作，不必安裝 Node.js、Git 或 clasp。
 - **[履歷填寫指南](docs/履歷填寫指南.md)**：怎麼把範例改成自己的內容、學生專題範例與 AI 整理提示詞。
 - [安裝勾選清單](docs/開始使用.md)：逐步核對。
@@ -16,12 +16,14 @@
 
 ## 安裝流程
 
+開始前：建議使用年滿 18 歲的個人 Gmail。Gemini API 條款要求年滿 18 歲，學校帳號也可能無法使用 AI Studio 或開放 Web App 給所有人，詳見 [準備帳號](docs/部署指南.md#0-準備帳號)。
+
 1. 建立自己的 GAS 專案，貼入 [單檔程式 dist/Code.gs](dist/Code.gs) 與 [manifest](gas/appsscript.json)。
-2. 儲存 manifest 後，從左側檔案欄點回「程式碼.gs／Code.gs」，在上方函式下拉選單選 `initializeProject` 並執行授權，再從 `documentUrl` 打開自動建立的履歷。
-3. 建立 LINE Messaging API 頻道及 Gemini API Key，填入 GAS 指令碼屬性。
-4. 執行 `testLineConnection` 確認 Token 與帳號，再執行 `syncKnowledgeBase`、`checkSetup` 與 `testResumeAnswer`。
-5. 部署為以「我」執行、「所有人」可存取的網頁應用程式，將正式 `/exec` 網址填入 `WEB_APP_URL`。
-6. 執行 `showWebhookUrl`，把完整結果貼到 LINE Webhook URL，開啟 Use webhook，再加入好友測試。
+2. 儲存 manifest 後，從左側檔案欄點回「程式碼.gs／Code.gs」，在上方函式下拉選單選 `initializeProject` 並執行；授權時勾「選取全部」，再從記錄的「履歷文件：」網址打開自動建立的履歷。
+3. 建立 LINE Messaging API 頻道及 Gemini API Key。在「專案設定 → 指令碼屬性」按「編輯指令碼屬性」，新增兩個金鑰、修改既有的 `DISPLAY_NAME`，再按「儲存指令碼屬性」。
+4. 依序執行 `testLineConnection`、`checkSetup`、`syncKnowledgeBase`、`checkSetup` 與 `testResumeAnswer`。
+5. 「部署 → 新增部署作業」，點「選取類型」旁的齒輪選網頁應用程式，以「我」執行、「所有人」可存取，將正式 `/exec` 網址填入 `WEB_APP_URL`。
+6. 執行 `showWebhookUrl`，把完整結果貼到 LINE Webhook URL，開啟 Use webhook、關閉自動回應，再掃 QR Code 加入好友測試。
 
 GitHub 存放原始碼；機器人執行在學生自己的 GAS 專案。程式不內建任何人的文件、部署網址或正式金鑰。
 

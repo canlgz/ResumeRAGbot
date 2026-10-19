@@ -12,6 +12,8 @@
   header { padding: 30px; border-radius: 20px; background: #173f35; color: white; }
   h1 { font-size: clamp(27px, 5vw, 38px); margin: 9px 0 16px; }
   h2 { font-size: 21px; margin: 0 0 12px; }
+  h3 { font-size: 17px; margin: 22px 0 6px; }
+  ol { padding-left: 24px; }
   p, li { line-height: 1.8; }
   header p { color: #e1eee6; margin-bottom: 0; }
   .version { font-size: 13px; letter-spacing: .03em; color: #bfdfc7; }
@@ -47,7 +49,8 @@
     <p>先用完整模擬履歷完成測試，再換成自己的資料。照順序完成下列步驟，每一階段都有完成判斷。</p>
   </header>
   <div class="intro">
-    <p>請先將 ZIP <strong>全部解壓縮</strong>，再用電腦瀏覽器開啟這個 START_HERE.html。此頁已內含要複製的程式，無須安裝 Node.js 或 Git。</p>
+    <p>請先將 ZIP <strong>全部解壓縮</strong>，再用電腦瀏覽器開啟這個 START_HERE.html（它和 README.md 放在同一個資料夾）。此頁已內含要複製的程式，無須安裝 Node.js 或 Git。</p>
+    <p><strong>開始前先確認帳號：</strong>建議使用<strong>年滿 18 歲的個人 Gmail</strong>，從頭到尾用同一個 Google 帳號。Gemini API 條款要求使用者年滿 18 歲；學校 Google 帳號（Workspace for Education）未滿 18 歲不能使用 AI Studio，學校帳號也可能無法把網頁應用程式開放給「所有人」。不符合時請先告知老師。另需一個能登入的 LINE 帳號。</p>
     <p class="small">金鑰只填入自己的 GAS「指令碼屬性」。此頁不要求輸入或保存金鑰。Google 授權、LINE 頻道與 API 配額使用自己的帳號。</p>
   </div>
   <div id="copyStatus" role="status" aria-live="polite"></div>
@@ -58,7 +61,12 @@
 
   <section class="step">
     <span class="number">步驟 1</span><h2>建立 GAS 專案，貼入程式</h2>
-    <p>開啟自己的 Google Apps Script，新增專案並命名 ResumeRAGbot。左側檔案欄點選 Code.gs（也可能顯示「程式碼.gs」），刪除預設的 myFunction，貼入下方複製的完整程式並儲存。</p>
+    <ol>
+      <li>按下方「開啟 Google Apps Script」，用準備好的 Google 帳號登入，按左上「新專案」。</li>
+      <li>點編輯器上方的標題「未命名的專案」，改成 <code>ResumeRAGbot</code>，按「重新命名」。</li>
+      <li>左側「檔案」欄點選 <strong>程式碼.gs</strong>（英文介面為 Code.gs），在中央程式區按 Ctrl+A（Mac：⌘A）全選，刪除預設的 myFunction。</li>
+      <li>按下方「複製完整程式」，回到編輯器貼上（Ctrl+V／⌘V），再按上方磁碟圖示「儲存專案」或 Ctrl+S（⌘S）。</li>
+    </ol>
     <div class="actions"><a class="button" href="https://script.google.com/" target="_blank" rel="noopener">開啟 Google Apps Script</a><button type="button" data-copy="code">複製完整程式</button></div>
     <details><summary>查看程式文字；若不能自動複製，也可手動複製</summary><pre id="codePreview"></pre></details>
     <div class="success">完成判斷：儲存後，上方函式選單可以找到 initializeProject。單檔已包含全部程式，不要再加貼 gas/ 的分檔。</div>
@@ -66,7 +74,11 @@
 
   <section class="step">
     <span class="number">步驟 2</span><h2>設定 manifest</h2>
-    <p>左側齒輪「專案設定」勾選「在編輯器中顯示 appsscript.json」。回到編輯器，打開 appsscript.json，將內容全部換成下方 JSON 並儲存。</p>
+    <ol>
+      <li>點左側齒輪「專案設定」，勾選「在編輯器中顯示『appsscript.json』資訊清單檔案」。</li>
+      <li>點左側 <code>&lt; &gt;</code>「編輯器」回到程式，左側檔案欄會多出 appsscript.json，點開它。</li>
+      <li>按 Ctrl+A／⌘A 全選原有內容，貼上下方複製的 manifest JSON，儲存。</li>
+    </ol>
     <div class="actions"><button type="button" data-copy="manifest">複製 manifest JSON</button></div>
     <details><summary>查看 manifest</summary><pre id="manifestPreview"></pre></details>
     <div class="success">完成判斷：Code.gs 放程式，appsscript.json 放 JSON。儲存後，請從左側檔案欄點回「程式碼.gs／Code.gs」，再進行步驟 3。</div>
@@ -76,50 +88,87 @@
     <span class="number">步驟 3</span><h2>初始化，取得自己的履歷文件</h2>
     <ol>
       <li>先在左側「檔案」欄點回<strong>程式碼.gs／Code.gs</strong>，確認中央顯示的是剛才貼入的程式碼，而非 appsscript.json 的 JSON。</li>
-      <li>在編輯器上方、「執行／偵錯」附近的<strong>函式下拉選單</strong>，選擇 <code>initializeProject</code>。</li>
-      <li>按「執行」，用同一個 Google 帳號完成必要授權，再打開執行記錄中的「履歷文件」連結。</li>
+      <li>在編輯器上方、「執行／偵錯」附近的<strong>函式下拉選單</strong>，選擇 <code>initializeProject</code>，按「執行」。</li>
+      <li>跳出「需要授權」時按「審查權限」，選擇剛才的 Google 帳號。</li>
+      <li>若出現「Google 尚未驗證這個應用程式」：這是自己剛建立的專案，點左下「進階」，再點「前往 ResumeRAGbot（不安全）」。</li>
+      <li>權限清單請勾選<strong>「選取全部」</strong>（或把每一項都勾起來），再按「繼續」。漏勾任何一項，之後建立文件、同步或連 LINE 時會出現權限錯誤。</li>
+      <li>編輯器下方會打開「執行記錄」。找到「履歷文件：」那一行，<strong>複製後面的網址</strong>，貼到瀏覽器新分頁開啟。</li>
     </ol>
-    <p class="small">如果看不到 initializeProject，請先確認已點回 .gs 檔案、完整貼上程式並儲存，等待編輯器完成載入後再打開函式選單。</p>
+    <p class="small">記錄前面是一長串 JSON，先看最後幾行的「履歷文件：」及「下一步 1、2…」即可。如果看不到 initializeProject，請先確認已點回 .gs 檔案、完整貼上程式並儲存，等待編輯器完成載入後再打開函式選單。漏勾權限時，再執行一次 initializeProject，Google 會重新詢問；若沒有再詢問，到 <a href="https://myaccount.google.com/connections" target="_blank" rel="noopener">Google 帳戶的第三方連線</a> 移除 ResumeRAGbot 的存取權後重新執行。</p>
     <p>會自動建立含填寫指引、技能與三個專案的模擬履歷。重複初始化會沿用原文件。尚未填 API Key 時，檢查顯示 API 欄位為 false 是正常的。</p>
-    <div class="success">完成判斷：自己的 Drive 出現「ResumeRAGbot｜模擬履歷（請修改）」，記錄中 document 是 ready。不要手動執行 doPost。</div>
+    <div class="success">完成判斷：自己的 Drive 出現「ResumeRAGbot｜模擬履歷（請修改）」，記錄中 document 是 ready。左側齒輪「專案設定」最下方的「指令碼屬性」已自動出現 RESUME_DOC_ID、DOC_TAB_IDS、WEBHOOK_TOKEN、DISPLAY_NAME、GEMINI_MODEL、BOT_ENABLED 六項，不要刪除。不要手動執行 doPost。</div>
   </section>
 
   <section class="step">
     <span class="number">步驟 4</span><h2>設定自己的 LINE 與 Gemini</h2>
-    <p>到 LINE Official Account Manager 建立官方帳號並啟用 Messaging API，再到 LINE Developers 的對應頻道取得 Channel access token (long-lived)。到 Google AI Studio 建立自己的 API Key。</p>
-    <p>在 GAS「專案設定 → 指令碼屬性」新增下表內容，按儲存。點屬性名稱可複製名稱，值填自己的資料。</p>
-    <table><thead><tr><th>屬性名稱</th><th>值</th></tr></thead><tbody>
-      <tr><td><button type="button" data-copy="LINE_CHANNEL_ACCESS_TOKEN">LINE_CHANNEL_ACCESS_TOKEN</button></td><td>LINE Channel access token；不是 Channel secret。</td></tr>
-      <tr><td><button type="button" data-copy="GEMINI_API_KEY">GEMINI_API_KEY</button></td><td>自己的 Google AI Studio API Key。</td></tr>
-      <tr><td><button type="button" data-copy="DISPLAY_NAME">DISPLAY_NAME</button></td><td>例如「王同學｜履歷測試」。</td></tr>
-    </tbody></table>
+    <h3>4-1 建立 LINE 官方帳號並取得 Token</h3>
+    <ol>
+      <li>開啟「LINE 帳號後台」（LINE Official Account Manager），用自己的 LINE 帳號登入；第一次會要求註冊 LINE Business ID。</li>
+      <li>按「建立帳號」，依表單填寫帳號名稱（例如「王同學履歷」）、業種等必填欄位後送出。一般帳號即可，不需申請認證。</li>
+      <li>進入該帳號的管理頁，按右上「設定」，左側選「Messaging API」，按「啟用 Messaging API」。</li>
+      <li>第一次會要求登錄開發者資訊：輸入姓名與 Email、同意條款。接著選擇 Provider：沒有的話建立新的 Provider，名稱可用自己的名字（設定後無法更換）。若出現隱私權政策／服務條款網址欄位，可留空，按確定。</li>
+      <li>開啟「LINE Developers」，用同一個 LINE 帳號登入，點剛才的 Provider，再點和官方帳號同名、類型為 Messaging API 的頻道。</li>
+      <li>點上方「Messaging API」分頁，捲到最下方「Channel access token (long-lived)」，按「Issue」，再按旁邊的複製圖示。不要複製 Basic settings 分頁的 Channel secret。</li>
+    </ol>
+    <h3>4-2 建立 Gemini API Key</h3>
+    <ol>
+      <li>開啟「AI Studio API Keys」，用同一個 Google 帳號登入；第一次需同意服務條款。</li>
+      <li>按「建立 API 金鑰／Create API key」。若要求選擇 Google Cloud 專案，選 AI Studio 自動建立的預設專案，或依畫面建立新專案。</li>
+      <li>複製產生的金鑰。看到「You do not have access to Google AI Studio」表示帳號被學校限制或未滿 18 歲，請改用符合資格的個人帳號或告知老師。</li>
+    </ol>
     <div class="actions"><a href="https://manager.line.biz/" target="_blank" rel="noopener">LINE 帳號後台</a><a href="https://developers.line.biz/console/" target="_blank" rel="noopener">LINE Developers</a><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">AI Studio API Keys</a></div>
-    <div class="success">完成判斷：執行 checkSetup，credentials 三項為 true；再執行 testLineConnection，狀態是 ready，帳號名稱是自己的官方帳號。此檢查不發訊息。</div>
+    <h3>4-3 填入 GAS 指令碼屬性</h3>
+    <ol>
+      <li>回到 GAS，點左側齒輪「專案設定」，捲到最下方「指令碼屬性」，按<strong>「編輯指令碼屬性」</strong>。</li>
+      <li>找到初始化已建立的 <code>DISPLAY_NAME</code>，直接把值「個人履歷」改成自己的名稱。<strong>不要再新增第二個 DISPLAY_NAME。</strong></li>
+      <li>按「新增指令碼屬性」兩次，分別新增 LINE_CHANNEL_ACCESS_TOKEN 與 GEMINI_API_KEY：左欄填名稱（可按下表按鈕複製），右欄貼值，前後不要有空白或引號。</li>
+      <li>按<strong>「儲存指令碼屬性」</strong>。沒有按儲存，程式讀不到新值。</li>
+    </ol>
+    <table><thead><tr><th>屬性名稱</th><th>操作</th><th>值</th></tr></thead><tbody>
+      <tr><td><button type="button" data-copy="LINE_CHANNEL_ACCESS_TOKEN">LINE_CHANNEL_ACCESS_TOKEN</button></td><td>新增</td><td>4-1 複製的 Channel access token；不是 Channel secret。</td></tr>
+      <tr><td><button type="button" data-copy="GEMINI_API_KEY">GEMINI_API_KEY</button></td><td>新增</td><td>4-2 複製的 API Key。</td></tr>
+      <tr><td><button type="button" data-copy="DISPLAY_NAME">DISPLAY_NAME</button></td><td>修改既有值</td><td>例如「王同學｜履歷測試」。</td></tr>
+    </tbody></table>
+    <div class="success">完成判斷：回到編輯器，依序執行 testLineConnection → checkSetup。testLineConnection 的 status 是 ready、botName 是自己的官方帳號；checkSetup 的 credentials 三項為 true。這兩個檢查都不發 LINE 訊息。</div>
   </section>
 
   <section class="step">
     <span class="number">步驟 5</span><h2>同步履歷並確認 AI 能回答</h2>
-    <p>依序執行 syncKnowledgeBase → checkSetup → testResumeAnswer。這裡會使用自己的 Gemini API 配額，先保留模擬資料測試即可。</p>
+    <p>依序在函式下拉選單選擇並執行 syncKnowledgeBase → checkSetup → testResumeAnswer。這裡會使用自己的 Gemini API 配額，先保留模擬資料測試即可。</p>
     <div class="success">完成判斷：document 與 index 都是 ready，testResumeAnswer 能根據文件回答並附來源。若有錯誤，先按照 checkSetup 的「下一步」處理，不必急著部署。</div>
   </section>
 
   <section class="step">
     <span class="number">步驟 6</span><h2>部署為所有人可存取的 Web App</h2>
-    <p>右上「部署 → 新增部署作業 → 網頁應用程式」，執行身分選「我」，存取選「所有人」。複製部署結果的網頁應用程式網址，結尾應為 /exec。</p>
-    <p>將該網址存入指令碼屬性 <button type="button" data-copy="WEB_APP_URL">WEB_APP_URL</button>。請用自己部署結果的網址，不能把 /dev 的結尾直接改寫。</p>
+    <ol>
+      <li>按編輯器右上藍色「部署」→「新增部署作業」。</li>
+      <li>對話框左上「選取類型」旁有<strong>齒輪圖示</strong>，點齒輪後選「網頁應用程式」。</li>
+      <li>說明可填 v1。「執行身分」選「我（自己的 Gmail）」；「誰可以存取」選<strong>「所有人」</strong>，不是「任何擁有 Google 帳戶的使用者」。</li>
+      <li>按「部署」。若再次要求授權，照步驟 3 完成並勾選全部權限。</li>
+      <li>複製「網頁應用程式」下方、結尾為 /exec 的網址（不是上方的「部署作業 ID」），按「完成」。</li>
+      <li>到「專案設定 → 指令碼屬性 → 編輯指令碼屬性 → 新增指令碼屬性」，名稱填 <button type="button" data-copy="WEB_APP_URL">WEB_APP_URL</button>，值貼上網址，按「儲存指令碼屬性」。</li>
+    </ol>
+    <p class="small">請用自己部署結果的網址，不能把 /dev 的結尾直接改寫成 /exec。</p>
     <div class="success">完成判斷：用無痕視窗開啟不含 key 的 /exec，可看到「LINE 履歷助理已部署」與本安裝包版本號。若版本不同，請在管理部署發布新版本。</div>
   </section>
 
   <section class="step">
     <span class="number">步驟 7</span><h2>連接 LINE Webhook</h2>
-    <p>在 GAS 執行 showWebhookUrl，把執行記錄中含 ?key= 的完整網址存入 LINE Developers → Messaging API → Webhook URL，按 Verify 並開啟 Use webhook。到官方帳號後台關閉重複的自動回應與歡迎訊息。</p>
-    <div class="success">完成判斷：加入自己的官方帳號並傳「選單」，能收到履歷首頁。Verify 成功只能證明網址有回應，仍須這一步確認真正收送訊息。</div>
+    <ol>
+      <li>GAS 函式選單選 showWebhookUrl 並執行，複製執行記錄中含 <code>?key=</code> 的完整網址。</li>
+      <li>開啟 LINE Developers → 自己的頻道 →「Messaging API」分頁 →「Webhook settings」，在 Webhook URL 旁按「Edit」，貼上網址後按「Update」。</li>
+      <li>按「Verify」看到 Success 後，開啟下方「Use webhook」開關。</li>
+      <li>同一分頁的「Auto-reply messages」或「Greeting messages」旁按「Edit」，會開啟 LINE 帳號後台「設定 → 回應設定」：關閉「自動回應訊息」與「加入好友的歡迎訊息」，並確認「Webhook」為開啟。</li>
+      <li>用手機 LINE 掃描「Messaging API」分頁上方的 QR code，加入自己的官方帳號為好友。</li>
+    </ol>
+    <div class="success">完成判斷：加入好友後收到履歷首頁，或傳「選單」能收到首頁。Verify 成功只能證明網址有回應，仍須這一步確認真正收送訊息。</div>
   </section>
 
   <section class="step">
     <span class="number">步驟 8</span><h2>測試回答，再改成自己的履歷</h2>
     <p>先問「報表自動化省了多少時間？」並對照模擬履歷，再問一題文件沒有的問題，確認原文件出現「待補充問題」。</p>
     <p>將範例改成自己的真實資料時，只要保留獨立成行的 [[PUBLIC]] 與 [[/PUBLIC]]，中間可自由撰寫。沒有工作經驗可用課程專題、社團或實習，詳細範例見填寫指南。</p>
+    <p class="small">使用 Gemini 免費額度時，送出的內容可能被 Google 用於改善服務並由人員審閱。公開區只放願意公開的內容，不要寫電話、住址、證件號碼等個人敏感資料。</p>
     <div class="success">完成判斷：改完公開內容後執行 syncKnowledgeBase，再提問驗證新資料。只改文件不用重新部署程式；改程式則要發布新版本。</div>
   </section>
   <footer>
