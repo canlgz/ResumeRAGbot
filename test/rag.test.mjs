@@ -66,11 +66,12 @@ test('answers require existing sources and exact evidence; invented links fail c
   ]) assert.throws(() => gas.validateAnswer_({ ...valid, ...change }, hits), /ANSWER_/);
 });
 
-test('model quotes that only change spacing, width, quote marks or join passages still count as verbatim', () => {
+test('model quotes that keep the source wording but change spacing, punctuation or omit asides still count', () => {
   const { gas } = createGas();
   const hits = [
     { id: 'S1', section: '專案二：每週營運報表自動化', text: '測試成果：連續十二次週報測試，單次平均處理時間由九十分鐘降為十五分鐘。\n使用技術：Python、pandas、Google Sheets。' },
-    { id: 'S2', section: '專業技能', text: 'Python：使用 pandas 整理 CSV 與 Excel 資料。' }
+    { id: 'S2', section: '專業技能', text: 'Python：使用 pandas 整理 CSV 與 Excel 資料。' },
+    { id: 'S3', section: '工作經歷一', text: '公司：禾序數位工作室（虛構公司）。\n任職期間：2024 年 7 月至 2026 年 9 月，共二年三個月。' }
   ];
   const answer = quotes => gas.validateAnswer_({ grounded: true, answer: '有報表自動化經驗。',
     evidence: quotes.map(([id, quote]) => ({ id, quote })) }, hits);
@@ -82,10 +83,12 @@ test('model quotes that only change spacing, width, quote marks or join passages
   assert.match(answer([['S1', '連續十二次週報測試……降為十五分鐘']]).answer, /專案二/);
   assert.match(answer([['S1', '每週營運報表自動化']]).answer, /專案二/, 'section headings are document text');
   assert.match(answer([['S1', '使用 pandas 整理 CSV']]).answer, /資料來源：專業技能$/, 'a wrong id is re-attributed');
+  assert.match(answer([['S3', '公司：禾序數位工作室，任職期間：2024年7月至2026年9月']]).answer, /工作經歷一/, 'omitted aside and merged lines');
+  assert.match(answer([['S1', '單次平均處理時間由九十分鐘降為十五分鐘；Python：使用 pandas 整理 CSV']]).answer, /資料來源/, 'merged passages');
   for (const quote of [
-    '降為十五分鐘……連續十二次',   // passages out of order
     '連續…測試',                   // fragments too short to be evidence
     '平均處理時間縮短一半',         // paraphrase
+    '年薪三百萬，具備十年資歷',      // invented
     '   '
   ]) assert.throws(() => answer([['S1', quote]]), /ANSWER_INVALID_EVIDENCE/, quote);
 });

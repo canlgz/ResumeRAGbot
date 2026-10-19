@@ -154,6 +154,10 @@ function testResumeAnswer() {
     var code = errorCode_(error);
     props.setProperty('LAST_ANSWER_TEST', code);
     console.log('testResumeAnswer 未通過（' + code + '）：' + ragErrorMessage_(error));
+    // Owner-only editor run: show which public-resume quote failed so the cause can be reported.
+    (error.details || []).forEach(function (d) {
+      console.log('未對上原文的引用（片段 ' + d.id + '，相符 ' + d.coverage + '%）：' + d.quote);
+    });
     throw error;
   }
   // Only a grounded answer carries a source line; waiting/missing replies are not a pass.

@@ -29,7 +29,7 @@ function config_() {
   };
 }
 
-function appVersion_() { return '1.1.3'; }
+function appVersion_() { return '1.1.4'; }
 
 function resumeDocumentId_(value) {
   var match = String(value).match(/^https:\/\/docs\.google\.com\/document\/d\/([A-Za-z0-9_-]+)(?:[\/?#]|$)/);
@@ -509,45 +509,66 @@ function generateAnswer_(question, hits, cfg) {
       id: { type: 'STRING' }, quote: { type: 'STRING' }
     }, required: ['id', 'quote'] } }
   }, required: ['grounded', 'answer', 'evidence'] };
-  var data = geminiRequest_(cfg.generationModel, 'generateContent', {
+  var request = {
     systemInstruction: { parts: [{ text: instructions }] },
     contents: [{ role: 'user', parts: [{ text: JSON.stringify({ question: question,
       evidence: hits.map(function (h) { return { id: h.id, section: h.section, text: h.text }; }) }) }] }],
     generationConfig: { temperature: 0.15, maxOutputTokens: 1800,
       responseMimeType: 'application/json', responseSchema: schema }
-  }, cfg, false);
-  var candidate = data.candidates && data.candidates[0];
-  if (!candidate || candidate.finishReason !== 'STOP' || !candidate.content) throw new Error('ANSWER_INCOMPLETE');
-  var text = (candidate.content.parts || []).filter(function (p) { return !p.thought && p.text; })
-    .map(function (p) { return p.text; }).join('');
-  var parsed;
-  try { parsed = JSON.parse(text); } catch (_) { throw new Error('ANSWER_INVALID_FORMAT'); }
-  return validateAnswer_(parsed, hits);
+  };
+  function attempt() {
+    var data = geminiRequest_(cfg.generationModel, 'generateContent', request, cfg, false);
+    var candidate = data.candidates && data.candidates[0];
+    if (!candidate || candidate.finishReason !== 'STOP' || !candidate.content) throw new Error('ANSWER_INCOMPLETE');
+    var text = (candidate.content.parts || []).filter(function (p) { return !p.thought && p.text; })
+      .map(function (p) { return p.text; }).join('');
+    var parsed;
+    try { parsed = JSON.parse(text); } catch (_) { throw new Error('ANSWER_INVALID_FORMAT'); }
+    return validateAnswer_(parsed, hits);
+  }
+  try { return attempt(); } catch (error) {
+    // A reworded quote is usually a one-off; a second sample normally quotes verbatim.
+    if (error.message !== 'ANSWER_INVALID_EVIDENCE') throw error;
+    safeLog_('ANSWER_EVIDENCE_RETRY');
+    return attempt();
+  }
 }
 
-// Models copy the meaning but not always the exact characters: they drop spaces between
-// Chinese and Latin text, switch full/half-width punctuation, add quote marks or join two
-// passages with an ellipsis. Compare on a normalized form so these still count as verbatim.
+// Models keep the facts but rarely copy every character: they drop spaces between Chinese
+// and Latin text, swap punctuation, omit parentheticals such as （虛構公司）, join passages
+// with an ellipsis or merge two lines. Compare letters only, then require that most of the
+// quote is made of long verbatim runs from the retrieved passages.
+var QUOTE_MIN_RUN = 4, QUOTE_MIN_COVERAGE = 0.8;
+
 function quoteKey_(text) {
-  return String(text).normalize('NFKC').replace(/[\s「」『』“”‘’"']/g, '');
+  // \\n: a model may copy the JSON escape of a line break instead of the break itself.
+  return String(text).normalize('NFKC').toLowerCase().replace(/\\[nrt]/g, '')
+    .replace(/[\s"'“”‘’「」『』（）()【】\[\]〔〕《》〈〉、，,。.．:：;；!！?？…⋯·・\-‐–—~～\/|*#]/g, '');
+}
+
+// Share of the quote covered by runs of at least QUOTE_MIN_RUN characters found in source.
+function quoteCoverage_(key, source) {
+  var covered = 0, i = 0;
+  while (i < key.length) {
+    var length = 0;
+    while (i + length < key.length && source.indexOf(key.slice(i, i + length + 1)) >= 0) length++;
+    if (length >= QUOTE_MIN_RUN) { covered += length; i += length; } else i++;
+  }
+  return key.length ? covered / key.length : 0;
 }
 
 function quoteSource_(quote, hits, preferredId) {
-  if (typeof quote !== 'string' || quote.length > 300) return null;
-  var parts = quote.split(/…+|⋯+|\.{3,}/).map(quoteKey_).filter(Boolean);
-  // Every joined passage must still be a meaningful verbatim run, never single characters.
-  if (!parts.length || parts.some(function (part) { return part.length < 4; })) return null;
-  var ordered = hits.filter(function (h) { return h.id === preferredId; })
-    .concat(hits.filter(function (h) { return h.id !== preferredId; }));
-  return ordered.find(function (hit) {
-    var source = quoteKey_(hit.section + '\n' + hit.text), from = 0;
-    return parts.every(function (part) {
-      var at = source.indexOf(part, from);
-      if (at < 0) return false;
-      from = at + part.length;
-      return true;
-    });
-  }) || null;
+  var key = typeof quote === 'string' && quote.length <= 300 ? quoteKey_(quote) : '';
+  if (key.length < QUOTE_MIN_RUN) return { hit: null, coverage: 0 };
+  var best = { hit: null, coverage: -1 };
+  hits.forEach(function (hit) {
+    var coverage = quoteCoverage_(key, quoteKey_(hit.section + '\n' + hit.text));
+    if (coverage > best.coverage || (coverage === best.coverage && hit.id === preferredId)) best = { hit: hit, coverage: coverage };
+  });
+  // A quote may merge lines from two passages; \u0000 keeps runs from spanning passages.
+  var combined = quoteCoverage_(key, hits.map(function (h) { return quoteKey_(h.section + '\n' + h.text); }).join('\u0000'));
+  var coverage = Math.max(best.coverage, combined);
+  return { hit: coverage >= QUOTE_MIN_COVERAGE ? best.hit : null, coverage: coverage };
 }
 
 function validateAnswer_(result, hits) {
@@ -556,10 +577,22 @@ function validateAnswer_(result, hits) {
   if (result.grounded === false) return { status: 'missing', reason: 'INSUFFICIENT_EVIDENCE' };
   if (!result.evidence.length) throw new Error('ANSWER_INVALID_EVIDENCE');
   // A quote may cite the wrong id; attribute it to the passage that actually contains it.
-  var sources = result.evidence.map(function (e) {
-    return e && typeof e === 'object' ? quoteSource_(e.quote, hits, e.id) : null;
+  var checks = result.evidence.map(function (e) {
+    var check = e && typeof e === 'object' ? quoteSource_(e.quote, hits, e.id) : { hit: null, coverage: 0 };
+    check.id = e && e.id; check.quote = e && e.quote;
+    return check;
   });
-  if (sources.some(function (hit) { return !hit; })) throw new Error('ANSWER_INVALID_EVIDENCE');
+  var failed = checks.filter(function (check) { return !check.hit; });
+  if (failed.length) {
+    // Details stay on the error for the owner's editor test; webhook logging uses the code only.
+    var error = new Error('ANSWER_INVALID_EVIDENCE');
+    error.details = failed.map(function (check) {
+      return { id: String(check.id), coverage: Math.round(Math.max(check.coverage, 0) * 100),
+        quote: String(check.quote).slice(0, 300) };
+    });
+    throw error;
+  }
+  var sources = checks.map(function (check) { return check.hit; });
   var context = hits.map(function (h) { return h.text; }).join('\n');
   var links = result.answer.match(/https?:\/\/[^\s<>「」『』]+/g) || [];
   if (links.some(function (url) { return context.indexOf(url) < 0; })) throw new Error('ANSWER_UNSUPPORTED_LINK');
@@ -1028,6 +1061,10 @@ function testResumeAnswer() {
     var code = errorCode_(error);
     props.setProperty('LAST_ANSWER_TEST', code);
     console.log('testResumeAnswer 未通過（' + code + '）：' + ragErrorMessage_(error));
+    // Owner-only editor run: show which public-resume quote failed so the cause can be reported.
+    (error.details || []).forEach(function (d) {
+      console.log('未對上原文的引用（片段 ' + d.id + '，相符 ' + d.coverage + '%）：' + d.quote);
+    });
     throw error;
   }
   // Only a grounded answer carries a source line; waiting/missing replies are not a pass.
