@@ -1,6 +1,6 @@
 {
   "name": "resume-rag-bot",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -9,8 +9,8 @@
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "check": "node scripts/check.mjs",
-    "bundle": "node scripts/bundle.mjs",
-    "check:bundle": "node scripts/bundle.mjs --check",
+    "bundle": "node scripts/bundle.mjs && node scripts/installer.mjs",
+    "check:bundle": "node scripts/bundle.mjs --check && node scripts/installer.mjs --check",
     "check:docs": "node scripts/check-docs.mjs"
   },
   "description": "LINE resume RAG bot on Google Apps Script with a Google Docs knowledge base",

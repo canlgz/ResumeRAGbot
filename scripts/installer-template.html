@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ResumeRAGbot｜開始安裝</title>
+<style>
+  :root { color-scheme: light; font-family: system-ui, -apple-system, "Noto Sans TC", sans-serif; color: #17352e; background: #f3f6f2; }
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  main { max-width: 940px; margin: auto; padding: 36px 22px 60px; }
+  header { padding: 30px; border-radius: 20px; background: #173f35; color: white; }
+  h1 { font-size: clamp(27px, 5vw, 38px); margin: 9px 0 16px; }
+  h2 { font-size: 21px; margin: 0 0 12px; }
+  p, li { line-height: 1.8; }
+  header p { color: #e1eee6; margin-bottom: 0; }
+  .version { font-size: 13px; letter-spacing: .03em; color: #bfdfc7; }
+  .intro { padding: 6px 8px; }
+  .step { background: white; border: 1px solid #dce5dd; border-radius: 15px; margin: 18px 0; padding: 25px; }
+  .number { color: #497960; font-size: 14px; display: block; margin-bottom: 7px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 15px 0; }
+  button, .button { cursor: pointer; font: inherit; background: #236a50; color: white; border: 0; border-radius: 8px; padding: 11px 17px; text-decoration: none; line-height: 1.4; }
+  button:hover, .button:hover { background: #164c39; }
+  button:focus-visible, a:focus-visible, summary:focus-visible { outline: 3px solid #a25d11; outline-offset: 3px; }
+  a { color: #225d47; text-underline-offset: 3px; }
+  code { background: #edf3ec; padding: 2px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+  .success { background: #edf5e9; border-left: 3px solid #759969; padding: 10px 14px; margin-top: 15px; }
+  #copyStatus { position: sticky; top: 0; padding: 13px 18px; margin: 18px 0; background: #fff7df; border: 1px solid #ead6a0; border-radius: 8px; z-index: 1; }
+  #copyStatus:empty { display: none; }
+  #manualCopy { width: 100%; min-height: 210px; font: 12px/1.5 monospace; margin-top: 12px; }
+  details { margin-top: 15px; }
+  summary { cursor: pointer; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; background: #f5f7f3; padding: 14px; max-height: 350px; overflow: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; vertical-align: top; border-bottom: 1px solid #dce5dd; padding: 11px 6px; line-height: 1.7; overflow-wrap: anywhere; }
+  table button { font-size: 12px; max-width: 100%; overflow-wrap: anywhere; text-align: left; padding: 8px 10px; }
+  .small { font-size: 14px; color: #496052; }
+  footer { font-size: 14px; padding: 15px 8px; }
+  @media (max-width: 560px) { main { padding: 18px 13px 36px; } header, .step { padding: 21px; } th, td { padding: 9px 4px; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="version">RESUMERAGBOT · 學生安裝包 <span id="version">__VERSION__</span></div>
+    <h1>把自己的履歷變成 LINE 機器人</h1>
+    <p>先用完整模擬履歷完成測試，再換成自己的資料。照順序完成下列步驟，每一階段都有完成判斷。</p>
+  </header>
+  <div class="intro">
+    <p>請先將 ZIP <strong>全部解壓縮</strong>，再用電腦瀏覽器開啟這個 START_HERE.html。此頁已內含要複製的程式，無須安裝 Node.js 或 Git。</p>
+    <p class="small">金鑰只填入自己的 GAS「指令碼屬性」。此頁不要求輸入或保存金鑰。Google 授權、LINE 頻道與 API 配額使用自己的帳號。</p>
+  </div>
+  <div id="copyStatus" role="status" aria-live="polite"></div>
+  <div id="manualPanel" hidden>
+    <label for="manualCopy">已選取要複製的完整文字：</label>
+    <textarea id="manualCopy" readonly spellcheck="false"></textarea>
+  </div>
+
+  <section class="step">
+    <span class="number">步驟 1</span><h2>建立 GAS 專案，貼入程式</h2>
+    <p>開啟自己的 Google Apps Script，新增專案並命名 ResumeRAGbot。刪除 Code.gs 裡預設的 myFunction，貼入下方複製的完整程式並儲存。</p>
+    <div class="actions"><a class="button" href="https://script.google.com/" target="_blank" rel="noopener">開啟 Google Apps Script</a><button type="button" data-copy="code">複製完整程式</button></div>
+    <details><summary>查看程式文字；若不能自動複製，也可手動複製</summary><pre id="codePreview"></pre></details>
+    <div class="success">完成判斷：儲存後，上方函式選單可以找到 initializeProject。單檔已包含全部程式，不要再加貼 gas/ 的分檔。</div>
+  </section>
+
+  <section class="step">
+    <span class="number">步驟 2</span><h2>設定 manifest</h2>
+    <p>左側齒輪「專案設定」勾選「在編輯器中顯示 appsscript.json」。回到編輯器，打開 appsscript.json，將內容全部換成下方 JSON 並儲存。</p>
+    <div class="actions"><button type="button" data-copy="manifest">複製 manifest JSON</button></div>
+    <details><summary>查看 manifest</summary><pre id="manifestPreview"></pre></details>
+    <div class="success">完成判斷：Code.gs 放程式，appsscript.json 放 JSON。沒有貼入 Markdown 圍欄，也沒有出現語法錯誤。</div>
+  </section>
+
+  <section class="step">
+    <span class="number">步驟 3</span><h2>初始化，取得自己的履歷文件</h2>
+    <p>上方函式選 initializeProject → 執行 → 用同一個 Google 帳號完成必要授權。打開執行記錄中的「履歷文件」連結。</p>
+    <p>會自動建立含填寫指引、技能與三個專案的模擬履歷。重複初始化會沿用原文件。尚未填 API Key 時，檢查顯示 API 欄位為 false 是正常的。</p>
+    <div class="success">完成判斷：自己的 Drive 出現「ResumeRAGbot｜模擬履歷（請修改）」，記錄中 document 是 ready。不要手動執行 doPost。</div>
+  </section>
+
+  <section class="step">
+    <span class="number">步驟 4</span><h2>設定自己的 LINE 與 Gemini</h2>
+    <p>到 LINE Official Account Manager 建立官方帳號並啟用 Messaging API，再到 LINE Developers 的對應頻道取得 Channel access token (long-lived)。到 Google AI Studio 建立自己的 API Key。</p>
+    <p>在 GAS「專案設定 → 指令碼屬性」新增下表內容，按儲存。點屬性名稱可複製名稱，值填自己的資料。</p>
+    <table><thead><tr><th>屬性名稱</th><th>值</th></tr></thead><tbody>
+      <tr><td><button type="button" data-copy="LINE_CHANNEL_ACCESS_TOKEN">LINE_CHANNEL_ACCESS_TOKEN</button></td><td>LINE Channel access token；不是 Channel secret。</td></tr>
+      <tr><td><button type="button" data-copy="GEMINI_API_KEY">GEMINI_API_KEY</button></td><td>自己的 Google AI Studio API Key。</td></tr>
+      <tr><td><button type="button" data-copy="DISPLAY_NAME">DISPLAY_NAME</button></td><td>例如「王同學｜履歷測試」。</td></tr>
+    </tbody></table>
+    <div class="actions"><a href="https://manager.line.biz/" target="_blank" rel="noopener">LINE 帳號後台</a><a href="https://developers.line.biz/console/" target="_blank" rel="noopener">LINE Developers</a><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">AI Studio API Keys</a></div>
+    <div class="success">完成判斷：執行 checkSetup，credentials 三項為 true；再執行 testLineConnection，狀態是 ready，帳號名稱是自己的官方帳號。此檢查不發訊息。</div>
+  </section>
+
+  <section class="step">
+    <span class="number">步驟 5</span><h2>同步履歷並確認 AI 能回答</h2>
+    <p>依序執行 syncKnowledgeBase → checkSetup → testResumeAnswer。這裡會使用自己的 Gemini API 配額，先保留模擬資料測試即可。</p>
+    <div class="success">完成判斷：document 與 index 都是 ready，testResumeAnswer 能根據文件回答並附來源。若有錯誤，先按照 checkSetup 的「下一步」處理，不必急著部署。</div>
+  </section>
+
+  <section class="step">
+    <span class="number">步驟 6</span><h2>部署為所有人可存取的 Web App</h2>
+    <p>右上「部署 → 新增部署作業 → 網頁應用程式」，執行身分選「我」，存取選「所有人」。複製部署結果的網頁應用程式網址，結尾應為 /exec。</p>
+    <p>將該網址存入指令碼屬性 <button type="button" data-copy="WEB_APP_URL">WEB_APP_URL</button>。請用自己部署結果的網址，不能把 /dev 的結尾直接改寫。</p>
+    <div class="success">完成判斷：用無痕視窗開啟不含 key 的 /exec，可看到「LINE 履歷助理已部署」與本安裝包版本號。若版本不同，請在管理部署發布新版本。</div>
+  </section>
+
+  <section class="step">
+    <span class="number">步驟 7</span><h2>連接 LINE Webhook</h2>
+    <p>在 GAS 執行 showWebhookUrl，把執行記錄中含 ?key= 的完整網址存入 LINE Developers → Messaging API → Webhook URL，按 Verify 並開啟 Use webhook。到官方帳號後台關閉重複的自動回應與歡迎訊息。</p>
+    <div class="success">完成判斷：加入自己的官方帳號並傳「選單」，能收到履歷首頁。Verify 成功只能證明網址有回應，仍須這一步確認真正收送訊息。</div>
+  </section>
+
+  <section class="step">
+    <span class="number">步驟 8</span><h2>測試回答，再改成自己的履歷</h2>
+    <p>先問「報表自動化省了多少時間？」並對照模擬履歷，再問一題文件沒有的問題，確認原文件出現「待補充問題」。</p>
+    <p>將範例改成自己的真實資料時，只要保留獨立成行的 [[PUBLIC]] 與 [[/PUBLIC]]，中間可自由撰寫。沒有工作經驗可用課程專題、社團或實習，詳細範例見填寫指南。</p>
+    <div class="success">完成判斷：改完公開內容後執行 syncKnowledgeBase，再提問驗證新資料。只改文件不用重新部署程式；改程式則要發布新版本。</div>
+  </section>
+  <footer>
+    <p><a href="https://github.com/canlgz/ResumeRAGbot/blob/main/docs/部署指南.md" target="_blank" rel="noopener">詳細安裝與排錯</a> · <a href="https://github.com/canlgz/ResumeRAGbot/blob/main/docs/履歷填寫指南.md" target="_blank" rel="noopener">履歷填寫指南</a> · <a href="https://github.com/canlgz/ResumeRAGbot/blob/main/docs/課堂實作.md" target="_blank" rel="noopener">課堂驗收</a> · <a href="https://github.com/canlgz/ResumeRAGbot" target="_blank" rel="noopener">GitHub 專案</a></p>
+    <p>純 GAS 使用秘密網址保護入口，無法驗證 LINE 簽章；AI 延遲與 API 配額仍需依自己的帳號實測。詳細限制見 README。</p>
+  </footer>
+  <noscript><p>瀏覽器未啟用 JavaScript。請用文字編輯器開啟 dist/Code.gs 與 gas/appsscript.json 手動複製，並閱讀 docs/部署指南.md。</p></noscript>
+</main>
+<script id="installData" type="application/json">__INSTALL_DATA__</script>
+<script>
+  const installData = JSON.parse(document.getElementById('installData').textContent);
+  document.getElementById('codePreview').textContent = installData.code;
+  document.getElementById('manifestPreview').textContent = installData.manifest;
+  const panel = document.getElementById('manualPanel');
+  const manual = document.getElementById('manualCopy');
+  const status = document.getElementById('copyStatus');
+  document.querySelectorAll('[data-copy]').forEach(button => button.addEventListener('click', async () => {
+    const key = button.dataset.copy;
+    const content = installData[key] || key;
+    let copied = false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(content);
+        copied = true;
+      }
+    } catch (_) {}
+    if (!copied) {
+      panel.hidden = false;
+      manual.value = content;
+      manual.focus();
+      manual.select();
+      try { copied = document.execCommand('copy'); } catch (_) {}
+    }
+    status.textContent = copied ? '已複製：' + button.textContent + '。請到 GAS 對應位置貼上。'
+      : '瀏覽器不允許自動複製；已選取完整文字，請按 Ctrl+C（Mac：⌘C），再到 GAS 貼上。';
+    if (copied) panel.hidden = true;
+    else panel.scrollIntoView({ block: 'center' });
+  }));
+</script>
+</body>
+</html>

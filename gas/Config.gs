@@ -1,14 +1,16 @@
 /** Set credentials in Project settings > Script properties, never in source. */
 function config_() {
   var p = PropertiesService.getScriptProperties();
-  var get = function (key, fallback) { return p.getProperty(key) || fallback || ''; };
+  var get = function (key, fallback) {
+    return String(p.getProperty(key) || '').trim() || fallback || '';
+  };
   var num = function (key, fallback, min, max) {
     var value = Number(get(key, String(fallback)));
     if (!Number.isFinite(value) || value < min || value > max) throw new Error('CONFIG_' + key);
     return value;
   };
   return {
-    docId: get('RESUME_DOC_ID'),
+    docId: resumeDocumentId_(get('RESUME_DOC_ID')),
     tabIds: get('DOC_TAB_IDS', 't.0').split(',').map(function (s) { return s.trim(); }),
     name: get('DISPLAY_NAME', '個人履歷'),
     tagline: get('TAGLINE', '從經歷、作品與技能，認識下一位合作夥伴。'),
@@ -20,13 +22,25 @@ function config_() {
     dimensions: 768,
     minSimilarity: num('MIN_SIMILARITY', 0.4, 0, 1),
     topK: 5,
-    enabled: get('BOT_ENABLED', 'true') === 'true'
+    enabled: get('BOT_ENABLED', 'true').toLowerCase() === 'true'
   };
 }
 
+function appVersion_() { return '1.1.0'; }
+
+function resumeDocumentId_(value) {
+  var match = String(value).match(/^https:\/\/docs\.google\.com\/document\/d\/([A-Za-z0-9_-]+)(?:[\/?#]|$)/);
+  return match ? match[1] : value;
+}
+
 function requireValue_(value, key) {
+  value = String(value || '').trim();
   if (!value || /^(YOUR_|REPLACE_|貼上|待填)/i.test(value)) throw new Error('MISSING_' + key);
   return value;
+}
+
+function valueConfigured_(value, key) {
+  try { requireValue_(value, key); return true; } catch (_) { return false; }
 }
 
 function sha256_(text) {

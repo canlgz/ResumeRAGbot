@@ -49,7 +49,7 @@ test('every installation must configure its own exec URL instead of trusting get
 
 test('invalid explicit webhook destinations cannot receive a generated secret URL', () => {
   for (const url of ['https://example.test/exec', 'https://script.google.com/macros/s/test/dev',
-    'https://script.google.com/macros/s/test/exec?key=old', 'http://script.google.com/macros/s/test/exec']) {
+    'https://script.google.com/macros/s/test/exec/other', 'http://script.google.com/macros/s/test/exec']) {
     const { gas, state } = createGas({ properties: { WEB_APP_URL: url } });
     assert.throws(() => gas.showWebhookUrl(), /SET_PUBLIC_WEB_APP_URL/);
     assert.equal(state.logs.length, 0);
@@ -61,7 +61,7 @@ test('anonymous and other-account HtmlService callers cannot invoke management f
   for (const email of ['', 'visitor@example.test']) {
     state.activeEmail = email;
     for (const fn of ['initializeProject', 'showWebhookUrl', 'rotateWebhookToken', 'checkSetup',
-      'installHourlySync', 'removeHourlySync', 'testResumeAnswer', 'syncKnowledgeBase']) {
+      'installHourlySync', 'removeHourlySync', 'testResumeAnswer', 'testLineConnection', 'syncKnowledgeBase']) {
       assert.throws(() => gas[fn](), /OWNER_ONLY/);
     }
   }

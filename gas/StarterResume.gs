@@ -4,7 +4,7 @@ function ensureResumeDocument_(props) {
   lock.waitLock(5000);
   var created = null;
   try {
-    if (props.getProperty('RESUME_DOC_ID')) return;
+    if (String(props.getProperty('RESUME_DOC_ID') || '').trim()) return;
     created = DocumentApp.create('ResumeRAGbot｜模擬履歷（請修改）');
     var tab = created.getTabs()[0];
     tab.asDocumentTab().getBody().setText(starterResumeText_());

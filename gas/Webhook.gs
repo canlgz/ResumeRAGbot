@@ -1,8 +1,12 @@
 function doGet() {
-  return webhookOutput_('LINE 履歷助理已部署。');
+  return webhookOutput_('LINE 履歷助理已部署。版本 ' + appVersion_());
 }
 
 function doPost(e) {
+  if (!e) {
+    console.log('doPost 需要 LINE Webhook 事件，請勿在編輯器直接測試。初次設定請執行 initializeProject；檢查設定請執行 checkSetup。');
+    return webhookOutput_('請透過 LINE 傳送訊息測試，或在編輯器執行 checkSetup。');
+  }
   try {
     var cfg = config_();
     // Shared URL token: access control, not proof that a request originated from LINE.

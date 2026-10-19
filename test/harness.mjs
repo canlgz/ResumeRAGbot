@@ -122,7 +122,9 @@ export function createGas(options = {}) {
       getProjectTriggers: () => [], newTrigger: () => ({ timeBased: () => ({ everyHours: () => ({ create() {} }) }) }) }
   });
   const dir = new URL('../gas/', import.meta.url);
-  for (const name of fs.readdirSync(dir).filter(n => n.endsWith('.gs'))) vm.runInContext(fs.readFileSync(new URL(name, dir), 'utf8'), context, { filename: name });
+  const sources = options.sourceMode === 'bundle' ? [new URL('../dist/Code.gs', import.meta.url)]
+    : fs.readdirSync(dir).filter(n => n.endsWith('.gs')).map(name => new URL(name, dir));
+  for (const source of sources) vm.runInContext(fs.readFileSync(source, 'utf8'), context, { filename: source.pathname });
   return { gas: context, state, tab };
 }
 

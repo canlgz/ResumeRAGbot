@@ -4,14 +4,16 @@
 /** Set credentials in Project settings > Script properties, never in source. */
 function config_() {
   var p = PropertiesService.getScriptProperties();
-  var get = function (key, fallback) { return p.getProperty(key) || fallback || ''; };
+  var get = function (key, fallback) {
+    return String(p.getProperty(key) || '').trim() || fallback || '';
+  };
   var num = function (key, fallback, min, max) {
     var value = Number(get(key, String(fallback)));
     if (!Number.isFinite(value) || value < min || value > max) throw new Error('CONFIG_' + key);
     return value;
   };
   return {
-    docId: get('RESUME_DOC_ID'),
+    docId: resumeDocumentId_(get('RESUME_DOC_ID')),
     tabIds: get('DOC_TAB_IDS', 't.0').split(',').map(function (s) { return s.trim(); }),
     name: get('DISPLAY_NAME', '個人履歷'),
     tagline: get('TAGLINE', '從經歷、作品與技能，認識下一位合作夥伴。'),
@@ -23,13 +25,25 @@ function config_() {
     dimensions: 768,
     minSimilarity: num('MIN_SIMILARITY', 0.4, 0, 1),
     topK: 5,
-    enabled: get('BOT_ENABLED', 'true') === 'true'
+    enabled: get('BOT_ENABLED', 'true').toLowerCase() === 'true'
   };
 }
 
+function appVersion_() { return '1.1.0'; }
+
+function resumeDocumentId_(value) {
+  var match = String(value).match(/^https:\/\/docs\.google\.com\/document\/d\/([A-Za-z0-9_-]+)(?:[\/?#]|$)/);
+  return match ? match[1] : value;
+}
+
 function requireValue_(value, key) {
+  value = String(value || '').trim();
   if (!value || /^(YOUR_|REPLACE_|貼上|待填)/i.test(value)) throw new Error('MISSING_' + key);
   return value;
+}
+
+function valueConfigured_(value, key) {
+  try { requireValue_(value, key); return true; } catch (_) { return false; }
 }
 
 function sha256_(text) {
@@ -62,7 +76,7 @@ function ensureResumeDocument_(props) {
   lock.waitLock(5000);
   var created = null;
   try {
-    if (props.getProperty('RESUME_DOC_ID')) return;
+    if (String(props.getProperty('RESUME_DOC_ID') || '').trim()) return;
     created = DocumentApp.create('ResumeRAGbot｜模擬履歷（請修改）');
     var tab = created.getTabs()[0];
     tab.asDocumentTab().getBody().setText(starterResumeText_());
@@ -717,10 +731,14 @@ function lineReply_(token, messages, cfg) {
 
 // ===== Webhook.gs =====
 function doGet() {
-  return webhookOutput_('LINE 履歷助理已部署。');
+  return webhookOutput_('LINE 履歷助理已部署。版本 ' + appVersion_());
 }
 
 function doPost(e) {
+  if (!e) {
+    console.log('doPost 需要 LINE Webhook 事件，請勿在編輯器直接測試。初次設定請執行 initializeProject；檢查設定請執行 checkSetup。');
+    return webhookOutput_('請透過 LINE 傳送訊息測試，或在編輯器執行 checkSetup。');
+  }
   try {
     var cfg = config_();
     // Shared URL token: access control, not proof that a request originated from LINE.
@@ -840,9 +858,9 @@ function initializeProject() {
     GEMINI_MODEL: 'gemini-3.5-flash-lite', BOT_ENABLED: 'true'
   };
   Object.keys(defaults).forEach(function (key) {
-    if (!props.getProperty(key)) props.setProperty(key, defaults[key]);
+    if (!String(props.getProperty(key) || '').trim()) props.setProperty(key, defaults[key]);
   });
-  if (!props.getProperty('WEBHOOK_TOKEN')) {
+  if (!String(props.getProperty('WEBHOOK_TOKEN') || '').trim()) {
     props.setProperty('WEBHOOK_TOKEN', sha256_(Utilities.getUuid() + Utilities.getUuid()));
   }
   ensureResumeDocument_(props);
@@ -864,14 +882,15 @@ function publicWebAppUrl_() {
   var url = (PropertiesService.getScriptProperties().getProperty('WEB_APP_URL') || '').trim();
   // Each installation must use its own explicit public deployment URL.
   // getService().getUrl() can return /dev; never rewrite that deployment ID.
-  if (!/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(url)) {
-    throw new Error('SET_PUBLIC_WEB_APP_URL');
-  }
-  return url;
+  var match = url.match(/^(https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec)(?:[?#].*)?$/);
+  if (!match) throw new Error('SET_PUBLIC_WEB_APP_URL');
+  // Ignore a pasted old query/key; showWebhookUrl always uses the current secret.
+  return match[1];
 }
 
 function rotateWebhookToken() {
   requireOwner_();
+  publicWebAppUrl_();
   PropertiesService.getScriptProperties().setProperty('WEBHOOK_TOKEN', sha256_(Utilities.getUuid() + Utilities.getUuid()));
   return showWebhookUrl();
 }
@@ -880,23 +899,75 @@ function checkSetup() {
   requireOwner_();
   var cfg = config_();
   var result = {
+    version: appVersion_(),
     credentials: {
-      LINE_CHANNEL_ACCESS_TOKEN: Boolean(cfg.lineToken),
-      GEMINI_API_KEY: Boolean(cfg.geminiKey),
+      LINE_CHANNEL_ACCESS_TOKEN: valueConfigured_(cfg.lineToken, 'LINE_CHANNEL_ACCESS_TOKEN'),
+      GEMINI_API_KEY: valueConfigured_(cfg.geminiKey, 'GEMINI_API_KEY'),
       WEBHOOK_TOKEN: /^[a-f0-9]{64}$/.test(cfg.webhookToken)
     },
     document: 'unchecked', publicChunks: 0, index: 'missing',
-    model: cfg.generationModel,
+    model: cfg.generationModel, deployment: 'not_configured', nextSteps: [],
     lastSync: PropertiesService.getScriptProperties().getProperty('LAST_SYNC_STATUS') || 'NOT_RUN'
   };
+  var source = null;
   try {
-    var source = readPublicSource_(cfg);
+    source = readPublicSource_(cfg);
     result.documentUrl = source.documentUrl;
     result.document = source.chunks.length ? 'ready' : 'NO_PUBLIC_CONTENT';
     result.publicChunks = source.chunks.length;
-    var index = loadIndex_(cfg);
-    result.index = index ? (index.fingerprint === source.fingerprint ? 'ready' : 'needs_sync') : 'missing';
-  } catch (error) { result.document = errorCode_(error); }
+  } catch (error) {
+    result.document = errorCode_(error) === 'UNEXPECTED_ERROR' ? 'DOC_UNAVAILABLE' : errorCode_(error);
+  }
+  if (source) {
+    try {
+      var index = loadIndex_(cfg);
+      result.index = index ? (index.fingerprint === source.fingerprint ? 'ready' : 'needs_sync') : 'missing';
+    } catch (error) {
+      result.index = errorCode_(error) === 'UNEXPECTED_ERROR' ? 'INDEX_INVALID' : errorCode_(error);
+    }
+  } else result.index = 'unchecked';
+  try { publicWebAppUrl_(); result.deployment = 'url_configured'; } catch (_) {}
+  if (result.document !== 'ready') result.nextSteps.push('文件尚未就緒（' + result.document + '）：先執行 initializeProject，或檢查文件權限、分頁及公開標記。');
+  ['LINE_CHANNEL_ACCESS_TOKEN', 'GEMINI_API_KEY'].forEach(function (key) {
+    if (!result.credentials[key]) result.nextSteps.push('在「專案設定 → 指令碼屬性」填入自己的 ' + key + '；不要填 YOUR_ 等範例值。');
+  });
+  if (!result.credentials.WEBHOOK_TOKEN) result.nextSteps.push('執行 initializeProject 產生入口密鑰；若手動改過，請按安裝說明恢復有效設定。');
+  if (result.document === 'ready' && result.credentials.GEMINI_API_KEY && result.index !== 'ready') {
+    result.nextSteps.push('索引尚未就緒（' + result.index + '）：執行 syncKnowledgeBase，再執行 checkSetup。');
+  }
+  if (result.index === 'ready') result.nextSteps.push('執行 testResumeAnswer，核對 Gemini 真實回答與來源。');
+  if (result.credentials.LINE_CHANNEL_ACCESS_TOKEN) result.nextSteps.push('執行 testLineConnection，確認 Token 有效且帳號名稱正確。');
+  if (result.deployment !== 'url_configured') result.nextSteps.push('部署網頁應用程式（我／所有人），把正式 /exec 網址存入 WEB_APP_URL。');
+  else result.nextSteps.push('執行 showWebhookUrl，把完整結果存到 LINE，開啟 Use webhook 後傳送「選單」。');
+  if (!cfg.enabled) result.nextSteps.push('目前 BOT_ENABLED=false；要測試問答請改成 true。');
+  console.log(JSON.stringify(result));
+  if (result.documentUrl) console.log('履歷文件：' + result.documentUrl);
+  result.nextSteps.forEach(function (step, i) { console.log('下一步 ' + (i + 1) + '：' + step); });
+  return result;
+}
+
+/** Checks the bot account only; never sends a LINE message. */
+function testLineConnection() {
+  requireOwner_();
+  var result;
+  try {
+    var cfg = config_();
+    requireValue_(cfg.lineToken, 'LINE_CHANNEL_ACCESS_TOKEN');
+    var response = UrlFetchApp.fetch('https://api.line.me/v2/bot/info', {
+      method: 'get', headers: { Authorization: 'Bearer ' + cfg.lineToken }, muteHttpExceptions: true
+    });
+    var status = response.getResponseCode();
+    if (status < 200 || status >= 300) throw new Error('LINE_HTTP_' + status);
+    var bot = JSON.parse(response.getContentText());
+    if (!bot || typeof bot.displayName !== 'string' || !bot.displayName.trim()) throw new Error('LINE_INVALID_RESPONSE');
+    result = { status: 'ready', botName: bot.displayName, message: 'LINE Token 可使用。請確認這是自己的官方帳號；接著完成 Webhook 設定並傳送「選單」。' };
+  } catch (error) {
+    var code = errorCode_(error);
+    result = { status: 'error', code: code, message:
+      code === 'MISSING_LINE_CHANNEL_ACCESS_TOKEN' ? '請先在指令碼屬性填入自己的 LINE_CHANNEL_ACCESS_TOKEN。' :
+      code === 'LINE_HTTP_401' || code === 'LINE_HTTP_403' ? 'LINE 驗證或權限失敗，請確認填的是此 Messaging API 頻道的 Channel access token，而不是 Channel secret。' :
+      'LINE 連線檢查未成功，請依錯誤碼排查權限、網路或服務狀態後再試。' };
+  }
   console.log(JSON.stringify(result));
   return result;
 }
