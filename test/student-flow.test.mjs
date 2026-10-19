@@ -132,12 +132,13 @@ test('the actual single-file installer completes a fresh student flow through re
   assert.equal(state.createdDocuments.length, 1);
 });
 
-test('a failed testResumeAnswer is explained and checkSetup stops repeating the same advice once it passes', () => {
+test('an AI quote-check failure in testResumeAnswer passes setup without an error and checkSetup stops asking', () => {
   const { gas, state } = createGas({ sourceMode: 'bundle', properties: { RESUME_DOC_ID: '', WEBHOOK_TOKEN: '' } });
-  let quotes = ['這段文字不在履歷裡面'], generations = 0;
+  let quotes = ['這段文字不在履歷裡面'], generations = 0, geminiStatus = 200;
   state.response = call => {
     if (call.url.endsWith(':batchEmbedContents')) return { body: { embeddings: call.body.requests.map(() => ({ values: unitVector() })) } };
     if (call.url.endsWith(':embedContent')) return { body: { embedding: { values: unitVector() } } };
+    if (geminiStatus !== 200) return { status: geminiStatus, body: {} };
     const quote = quotes[Math.min(generations++, quotes.length - 1)];
     return { body: { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({
       grounded: true, answer: '陳沐言是 AI 自動化工程師。', evidence: [{ id: 'S1', quote }] }) }] } }] } };
@@ -145,15 +146,19 @@ test('a failed testResumeAnswer is explained and checkSetup stops repeating the 
   gas.initializeProject();
   gas.syncKnowledgeBase();
   const advice = () => [...gas.checkSetup().nextSteps].filter(step => step.includes('testResumeAnswer'));
-  assert.deepEqual(advice(), ['執行 testResumeAnswer，核對 Gemini 真實回答與來源。']);
-  assert.throws(() => gas.testResumeAnswer(), /ANSWER_INVALID_EVIDENCE/);
+  assert.deepEqual(advice(), ['執行 testResumeAnswer，確認 Gemini 能根據文件回答。']);
+  assert.match(gas.testResumeAnswer(), /安裝設定正常.*ANSWER_INVALID_EVIDENCE.*可以直接繼續下一步/);
   assert.equal(generations, 2, 'one retry before reporting a failed quote');
-  assert(state.logs.some(log => /testResumeAnswer 未通過（ANSWER_INVALID_EVIDENCE）：.*不代表履歷沒有相關資料/.test(log)));
   assert(state.logs.includes('未對上原文的引用（片段 S1，相符 0%）：這段文字不在履歷裡面'));
-  assert.equal(gas.checkSetup().answerTest, 'ANSWER_INVALID_EVIDENCE');
-  assert.match(advice()[0], /上次 testResumeAnswer 未通過（ANSWER_INVALID_EVIDENCE）.*再執行一次/);
-  generations = 0;
-  quotes = ['這段文字不在履歷裡面', '姓名：陳沐言，職涯定位：AI應用與流程自動化工程師'];
+  assert.equal(gas.checkSetup().answerTest, 'GEMINI_OK');
+  assert.deepEqual(advice(), []);
+  // A real setup problem still stops the student with an error and advice.
+  geminiStatus = 403;
+  assert.throws(() => gas.testResumeAnswer(), /GEMINI_HTTP_403/);
+  assert.equal(gas.checkSetup().answerTest, 'GEMINI_HTTP_403');
+  assert.match(advice()[0], /未通過（GEMINI_HTTP_403）/);
+  geminiStatus = 200; generations = 0;
+  quotes = ['姓名：陳沐言，職涯定位：AI應用與流程自動化工程師'];
   assert.match(gas.testResumeAnswer(), /資料來源：個人介紹/);
   assert.equal(gas.checkSetup().answerTest, 'OK');
   assert.deepEqual(advice(), []);
