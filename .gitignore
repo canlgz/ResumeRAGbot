@@ -1,0 +1,14 @@
+node_modules/
+.wrangler/
+.dev.vars*
+.env*
+!.env.example
+.clasp.json
+.clasprc.json
+*.local.json
+dist/*
+!dist/Code.gs
+docs/交付狀態.md
+local/
+*.log
+.DS_Store

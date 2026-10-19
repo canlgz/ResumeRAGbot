@@ -1,0 +1,22 @@
+{
+  "name": "resume-rag-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "check": "node scripts/check.mjs",
+    "bundle": "node scripts/bundle.mjs",
+    "check:bundle": "node scripts/bundle.mjs --check",
+    "check:docs": "node scripts/check-docs.mjs"
+  },
+  "description": "LINE resume RAG bot on Google Apps Script with a Google Docs knowledge base",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/canlgz/ResumeRAGbot.git"
+  }
+}
