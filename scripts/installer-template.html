@@ -58,7 +58,7 @@
 
   <section class="step">
     <span class="number">步驟 1</span><h2>建立 GAS 專案，貼入程式</h2>
-    <p>開啟自己的 Google Apps Script，新增專案並命名 ResumeRAGbot。刪除 Code.gs 裡預設的 myFunction，貼入下方複製的完整程式並儲存。</p>
+    <p>開啟自己的 Google Apps Script，新增專案並命名 ResumeRAGbot。左側檔案欄點選 Code.gs（也可能顯示「程式碼.gs」），刪除預設的 myFunction，貼入下方複製的完整程式並儲存。</p>
     <div class="actions"><a class="button" href="https://script.google.com/" target="_blank" rel="noopener">開啟 Google Apps Script</a><button type="button" data-copy="code">複製完整程式</button></div>
     <details><summary>查看程式文字；若不能自動複製，也可手動複製</summary><pre id="codePreview"></pre></details>
     <div class="success">完成判斷：儲存後，上方函式選單可以找到 initializeProject。單檔已包含全部程式，不要再加貼 gas/ 的分檔。</div>
@@ -69,12 +69,17 @@
     <p>左側齒輪「專案設定」勾選「在編輯器中顯示 appsscript.json」。回到編輯器，打開 appsscript.json，將內容全部換成下方 JSON 並儲存。</p>
     <div class="actions"><button type="button" data-copy="manifest">複製 manifest JSON</button></div>
     <details><summary>查看 manifest</summary><pre id="manifestPreview"></pre></details>
-    <div class="success">完成判斷：Code.gs 放程式，appsscript.json 放 JSON。沒有貼入 Markdown 圍欄，也沒有出現語法錯誤。</div>
+    <div class="success">完成判斷：Code.gs 放程式，appsscript.json 放 JSON。儲存後，請從左側檔案欄點回「程式碼.gs／Code.gs」，再進行步驟 3。</div>
   </section>
 
   <section class="step">
     <span class="number">步驟 3</span><h2>初始化，取得自己的履歷文件</h2>
-    <p>上方函式選 initializeProject → 執行 → 用同一個 Google 帳號完成必要授權。打開執行記錄中的「履歷文件」連結。</p>
+    <ol>
+      <li>先在左側「檔案」欄點回<strong>程式碼.gs／Code.gs</strong>，確認中央顯示的是剛才貼入的程式碼，而非 appsscript.json 的 JSON。</li>
+      <li>在編輯器上方、「執行／偵錯」附近的<strong>函式下拉選單</strong>，選擇 <code>initializeProject</code>。</li>
+      <li>按「執行」，用同一個 Google 帳號完成必要授權，再打開執行記錄中的「履歷文件」連結。</li>
+    </ol>
+    <p class="small">如果看不到 initializeProject，請先確認已點回 .gs 檔案、完整貼上程式並儲存，等待編輯器完成載入後再打開函式選單。</p>
     <p>會自動建立含填寫指引、技能與三個專案的模擬履歷。重複初始化會沿用原文件。尚未填 API Key 時，檢查顯示 API 欄位為 false 是正常的。</p>
     <div class="success">完成判斷：自己的 Drive 出現「ResumeRAGbot｜模擬履歷（請修改）」，記錄中 document 是 ready。不要手動執行 doPost。</div>
   </section>

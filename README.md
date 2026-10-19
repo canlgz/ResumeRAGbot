@@ -17,7 +17,7 @@
 ## 安裝流程
 
 1. 建立自己的 GAS 專案，貼入 [單檔程式 dist/Code.gs](dist/Code.gs) 與 [manifest](gas/appsscript.json)。
-2. 執行 `initializeProject` 並授權，從執行記錄的 `documentUrl` 打開自動建立的履歷。
+2. 儲存 manifest 後，從左側檔案欄點回「程式碼.gs／Code.gs」，在上方函式下拉選單選 `initializeProject` 並執行授權，再從 `documentUrl` 打開自動建立的履歷。
 3. 建立 LINE Messaging API 頻道及 Gemini API Key，填入 GAS 指令碼屬性。
 4. 執行 `testLineConnection` 確認 Token 與帳號，再執行 `syncKnowledgeBase`、`checkSetup` 與 `testResumeAnswer`。
 5. 部署為以「我」執行、「所有人」可存取的網頁應用程式，將正式 `/exec` 網址填入 `WEB_APP_URL`。
