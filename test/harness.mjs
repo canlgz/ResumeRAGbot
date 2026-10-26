@@ -115,7 +115,8 @@ export function createGas(options = {}) {
       const call = { url, ...config, body: config.payload ? JSON.parse(config.payload) : null };
       calls.push(call);
       const response = state.response ? state.response(call) : { status: 200, body: {} };
-      return { getResponseCode: () => response.status ?? 200, getContentText: () => JSON.stringify(response.body) };
+      return { getResponseCode: () => response.status ?? 200,
+        getContentText: () => typeof response.text === 'string' ? response.text : JSON.stringify(response.body) };
     } },
     ScriptApp: { getScriptId: () => options.scriptId ?? 'test-script',
       getService: () => ({ getUrl: () => options.serviceUrl ?? null }),

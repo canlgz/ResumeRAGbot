@@ -1,5 +1,6 @@
 function doGet() {
-  return webhookOutput_('LINE 履歷助理已部署。版本 ' + appVersion_());
+  return webhookOutput_('LINE 履歷助理已部署。版本 ' + appVersion_() +
+    '<!--RESUMERAGBOT_VERSION=' + appVersion_() + '-->');
 }
 
 function doPost(e) {

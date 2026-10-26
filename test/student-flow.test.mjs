@@ -86,7 +86,8 @@ test('accidentally running doPost in the editor explains the right next action w
   assert.match(gas.doPost().text, /checkSetup/);
   assert(state.logs.some(log => log.includes('initializeProject')));
   assert.equal(state.calls.length, 0);
-  assert.equal(gas.doGet().text, 'LINE 履歷助理已部署。版本 ' + gas.appVersion_());
+  assert(gas.doGet().text.startsWith('LINE 履歷助理已部署。版本 ' + gas.appVersion_()));
+  assert(gas.doGet().text.includes('RESUMERAGBOT_VERSION=' + gas.appVersion_()));
 });
 
 test('the actual single-file installer completes a fresh student flow through reply, feedback and update', () => {
@@ -95,6 +96,7 @@ test('the actual single-file installer completes a fresh student flow through re
   } });
   let missing = false;
   state.response = call => {
+    if (call.url.startsWith('https://script.google.com/macros/s/student-public/exec?version_check=')) return { text: gas.doGet().text };
     if (call.url.endsWith('/bot/info')) return { body: { displayName: 'Student Demo' } };
     if (call.url.endsWith(':batchEmbedContents')) return { body: { embeddings: call.body.requests.map(() => ({ values: unitVector() })) } };
     if (call.url.endsWith(':embedContent')) return { body: { embedding: { values: unitVector(missing ? 1 : 0) } } };
@@ -110,6 +112,8 @@ test('the actual single-file installer completes a fresh student flow through re
   assert.equal(gas.testLineConnection().status, 'ready');
   assert.equal(gas.syncKnowledgeBase().status, 'ok');
   state.properties.set('WEB_APP_URL', 'https://script.google.com/macros/s/student-public/exec');
+  assert.equal(gas.checkDeployment().status, 'ready');
+  assert.equal(gas.checkSetup().deploymentCheck.webAppVersion, gas.appVersion_());
   const webhookUrl = gas.showWebhookUrl();
   const key = webhookUrl.split('?key=')[1];
   const input = events => ({ parameter: { key }, postData: { contents: JSON.stringify({ events }) } });

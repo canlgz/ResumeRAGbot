@@ -44,6 +44,59 @@ function rotateWebhookToken() {
   return showWebhookUrl();
 }
 
+/** Owner-only comparison of saved editor code and the configured public /exec URL. */
+function checkDeployment() {
+  requireOwner_();
+  var result = deploymentVersionStatus_();
+  console.log(JSON.stringify(result));
+  return result;
+}
+
+function deploymentVersionStatus_() {
+  var result = { status: 'not_configured', editorVersion: appVersion_(), webAppVersion: null };
+  var url;
+  try { url = publicWebAppUrl_(); } catch (_) {
+    result.message = '尚未設定有效的正式 /exec 網址；首次安裝可先同步，部署後再執行 checkDeployment。';
+    return result;
+  }
+  try {
+    var response = UrlFetchApp.fetch(url + '?version_check=' + Date.now(), {
+      method: 'get', followRedirects: true, muteHttpExceptions: true,
+      headers: { 'Cache-Control': 'no-cache' }
+    });
+    result.httpStatus = response.getResponseCode();
+    if (result.httpStatus !== 200) {
+      result.status = 'unreachable';
+      result.message = '正式網址回傳 HTTP ' + result.httpStatus + '，無法確認版本。請確認部署以「我」執行、「所有人」可存取。';
+      return result;
+    }
+    var body = response.getContentText();
+    var match = body.match(/RESUMERAGBOT_VERSION=([0-9]+\.[0-9]+\.[0-9]+)(?![0-9.])/)
+      || body.match(/LINE 履歷助理已部署。版本\s+([0-9]+\.[0-9]+\.[0-9]+)(?![0-9.])/);
+    if (!match) {
+      result.status = 'unrecognized';
+      result.message = '正式網址沒有可辨識的版本資訊，尚未確認一致。請用無痕視窗開啟不含 key 的 /exec 網址，核對版本及是否要求登入。';
+      return result;
+    }
+    result.webAppVersion = match[1];
+    result.status = result.webAppVersion === result.editorVersion ? 'ready' : 'version_mismatch';
+    result.message = result.status === 'ready' ? '編輯器與正式部署版本一致。' :
+      '版本不一致：編輯器 ' + result.editorVersion + '、正式部署 ' + result.webAppVersion +
+      '。先確認兩者要使用的版本；下載的安裝包、完整程式與 manifest 必須來自同一版。儲存並重新整理編輯器，再到「部署 → 管理部署」編輯原部署，版本選「新版本」。';
+  } catch (_) {
+    result.status = 'unreachable';
+    result.message = '暫時無法連線到正式網址，無法確認版本；這不代表版本不同。請稍後再執行 checkDeployment，或用無痕視窗核對。';
+  }
+  return result;
+}
+
+function requireMatchingDeployment_() {
+  var result = deploymentVersionStatus_();
+  // Only a confirmed mismatch blocks a rebuild. A probe failure is reported as unknown.
+  if (result.status === 'version_mismatch') throw new Error('DEPLOYMENT_VERSION_MISMATCH');
+  return result;
+}
+
 function checkSetup() {
   requireOwner_();
   var cfg = config_();
@@ -73,20 +126,23 @@ function checkSetup() {
     try {
       var index = loadIndex_(cfg);
       result.index = index ? (index.fingerprint === source.fingerprint ? 'ready' : 'needs_sync') : 'missing';
+      result.indexBuiltWith = index && index.builtWithAppVersion || 'unknown';
     } catch (error) {
       result.index = errorCode_(error) === 'UNEXPECTED_ERROR' ? 'INDEX_INVALID' : errorCode_(error);
     }
   } else result.index = 'unchecked';
-  try { publicWebAppUrl_(); result.deployment = 'url_configured'; } catch (_) {}
+  result.deploymentCheck = deploymentVersionStatus_();
+  if (result.deploymentCheck.status !== 'not_configured') result.deployment = 'url_configured';
   if (result.document !== 'ready') result.nextSteps.push('文件尚未就緒（' + result.document + '）：先執行 initializeProject，或檢查文件權限、分頁及公開標記。');
   ['LINE_CHANNEL_ACCESS_TOKEN', 'GEMINI_API_KEY'].forEach(function (key) {
     if (!result.credentials[key]) result.nextSteps.push('在「專案設定 → 指令碼屬性」填入自己的 ' + key + '；不要填 YOUR_ 等範例值。');
   });
   if (!result.credentials.WEBHOOK_TOKEN) result.nextSteps.push('執行 initializeProject 產生入口密鑰；若手動改過，請按安裝說明恢復有效設定。');
-  if (result.document === 'ready' && result.credentials.GEMINI_API_KEY && result.index !== 'ready') {
+  if (result.document === 'ready' && result.credentials.GEMINI_API_KEY && result.index !== 'ready' &&
+      result.deploymentCheck.status !== 'version_mismatch') {
     result.nextSteps.push('索引尚未就緒（' + result.index + '）：執行 syncKnowledgeBase，再執行 checkSetup。');
   }
-  if (result.publicImages) result.nextSteps.push('公開區有 ' + result.publicImages + ' 張圖片；同步時辨識文字，完成後可執行 previewImageText 核對辨識內容。');
+  if (result.publicImages) result.nextSteps.push('公開區有 ' + result.publicImages + ' 張圖片；同步時辨識文字及畫面，完成後可執行 previewImageText 核對。');
   var answerTest = PropertiesService.getScriptProperties().getProperty('LAST_ANSWER_TEST') || 'NOT_RUN';
   result.answerTest = answerTest;
   if (result.index === 'ready') {
@@ -98,7 +154,8 @@ function checkSetup() {
   }
   if (result.credentials.LINE_CHANNEL_ACCESS_TOKEN) result.nextSteps.push('執行 testLineConnection，確認 Token 有效且帳號名稱正確。');
   if (result.deployment !== 'url_configured') result.nextSteps.push('部署網頁應用程式（我／所有人），把正式 /exec 網址存入 WEB_APP_URL。');
-  else result.nextSteps.push('執行 showWebhookUrl，把完整結果存到 LINE，開啟 Use webhook 後傳送「選單」。');
+  else if (result.deploymentCheck.status !== 'ready') result.nextSteps.push(result.deploymentCheck.message);
+  else result.nextSteps.push('正式部署版本一致。執行 showWebhookUrl，把完整結果存到 LINE，開啟 Use webhook 後傳送「選單」。');
   if (!cfg.enabled) result.nextSteps.push('目前 BOT_ENABLED=false；要測試問答請改成 true。');
   console.log(JSON.stringify(result));
   if (result.documentUrl) console.log('履歷文件：' + result.documentUrl);
@@ -116,8 +173,9 @@ function previewImageText() {
     return { section: entry.section, tabId: entry.tabId, status: result.status, text: result.text,
       transcription: result.transcription || '', visualDescription: result.visualDescription || '' };
   });
-  console.log(JSON.stringify({ status: 'ready', images: images }));
-  return { status: 'ready', images: images };
+  var result = { status: 'ready', version: appVersion_(), indexBuiltWith: index.builtWithAppVersion || 'unknown', images: images };
+  console.log(JSON.stringify(result));
+  return result;
 }
 
 /** Checks the bot account only; never sends a LINE message. */

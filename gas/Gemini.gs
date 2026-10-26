@@ -55,6 +55,7 @@ function ragErrorMessage_(error) {
     return 'Google Gemini API 驗證或存取權限失敗（HTTP ' + code.slice(-3) + '）。請管理者檢查 API Key 與專案權限。';
   }
   if (code === 'MISSING_GEMINI_API_KEY') return '尚未設定 Gemini API Key，請管理者完成設定後再試。';
+  if (code === 'DEPLOYMENT_VERSION_MISMATCH') return 'GAS 編輯器與 LINE 正式部署的程式版本不同。請管理者先執行 checkDeployment 並更新原部署；現有索引已保留，不必反覆同步。';
   if (/^IMAGE_/.test(code)) return '履歷中的圖片尚無法讀取或辨識，請履歷主人依同步記錄檢查圖片格式、清晰度與公開範圍，再同步知識庫。';
   if (/^ANSWER_/.test(code)) return '這次 AI 回答未完成或未通過來源檢查，請稍後再試。這不代表履歷沒有相關資料。';
   if (/^GEMINI_HTTP_5\d\d$/.test(code)) {
@@ -178,12 +179,12 @@ function answerQuestion_(question, cfg, originalQuestion) {
   var index = loadIndex_(cfg);
   if (!index) return '履歷資料正在準備中，請稍後再來，或直接與本人聯繫。';
   // Read the current public text before every answer. Removed facts cannot use an old index.
-  if (readPublicSource_(cfg).fingerprint !== index.fingerprint) return '履歷剛更新，正在等待同步。請稍後再試，或直接與本人聯繫。';
+  if (readPublicSource_(cfg).fingerprint !== index.fingerprint) return '履歷資料正在等待同步。請稍後再試，或直接與本人聯繫。';
   var hits = rankChunks_(question, embedQuery_(question, cfg), index.chunks, cfg);
   var result = hits.length ? generateAnswer_(question, hits, cfg)
     : { status: 'missing', reason: 'NO_RELEVANT_CHUNKS' };
   // Guard deletion/edits that happened during generation too.
-  if (readPublicSource_(cfg).fingerprint !== index.fingerprint) return '履歷剛更新，請等待同步後再詢問。';
+  if (readPublicSource_(cfg).fingerprint !== index.fingerprint) return '履歷資料正在等待同步，請稍後再詢問。';
   if (result.status === 'missing') {
     safeLog_(result.reason);
     return missingAnswer_(recordUnansweredQuestion_(originalQuestion || question, result.reason, cfg));

@@ -87,7 +87,7 @@
   <section class="step">
     <span class="number">步驟 3</span><h2>初始化，取得自己的履歷文件</h2>
     <ol>
-      <li>先在左側「檔案」欄點回<strong>程式碼.gs／Code.gs</strong>，確認中央顯示的是剛才貼入的程式碼，而非 appsscript.json 的 JSON。</li>
+      <li>確認程式與 manifest 都已儲存後，重新整理 GAS 分頁；再從左側「檔案」欄點回<strong>程式碼.gs／Code.gs</strong>，確認中央顯示程式碼，而非 appsscript.json 的 JSON。</li>
       <li>在編輯器上方、「執行／偵錯」附近的<strong>函式下拉選單</strong>，選擇 <code>initializeProject</code>，按「執行」。</li>
       <li>跳出「需要授權」時按「審查權限」，選擇剛才的 Google 帳號。</li>
       <li>若出現「Google 尚未驗證這個應用程式」：這是自己剛建立的專案，點左下「進階」，再點「前往 ResumeRAGbot（不安全）」。</li>
@@ -143,13 +143,14 @@
     <ol>
       <li>按編輯器右上藍色「部署」→「新增部署作業」。</li>
       <li>對話框左上「選取類型」旁有<strong>齒輪圖示</strong>，點齒輪後選「網頁應用程式」。</li>
-      <li>說明可填 v1。「執行身分」選「我（自己的 Gmail）」；「誰可以存取」選<strong>「所有人」</strong>，不是「任何擁有 Google 帳戶的使用者」。</li>
+      <li>說明填 <code>ResumeRAGbot v__VERSION__</code>。「執行身分」選「我（自己的 Gmail）」；「誰可以存取」選<strong>「所有人」</strong>，不是「任何擁有 Google 帳戶的使用者」。</li>
       <li>按「部署」。若再次要求授權，照步驟 3 完成並勾選全部權限。</li>
       <li>複製「網頁應用程式」下方、結尾為 /exec 的網址（不是上方的「部署作業 ID」），按「完成」。</li>
       <li>到「專案設定 → 指令碼屬性 → 編輯指令碼屬性 → 新增指令碼屬性」，名稱填 <button type="button" data-copy="WEB_APP_URL">WEB_APP_URL</button>，值貼上網址，按「儲存指令碼屬性」。</li>
+      <li>回到程式碼.gs，執行 <code>checkDeployment</code>。確認 <code>status=ready</code>，<code>editorVersion</code> 與 <code>webAppVersion</code> 都是 <strong>__VERSION__</strong>，再繼續連接 LINE。</li>
     </ol>
     <p class="small">請用自己部署結果的網址，不能把 /dev 的結尾直接改寫成 /exec。</p>
-    <div class="success">完成判斷：用無痕視窗開啟不含 key 的 /exec，可看到「LINE 履歷助理已部署」與本安裝包版本號。若版本不同，請在管理部署發布新版本。</div>
+    <div class="success">完成判斷：checkDeployment 的兩個版本都與本安裝包 __VERSION__ 相同。也可用無痕視窗開啟不含 key 的 /exec 核對。GAS 的「版本 1、版本 2…」是快照編號，並不是本安裝包的版本號；不能只看快照編號較大就認為程式較新。</div>
   </section>
 
   <section class="step">
@@ -168,9 +169,19 @@
     <span class="number">步驟 8</span><h2>測試回答，再改成自己的履歷</h2>
     <p>先問「報表自動化省了多少時間？」並對照模擬履歷，再問一題文件沒有的問題，確認原文件出現「待補充問題」。</p>
     <p>將範例改成自己的真實資料時，只要保留獨立成行的 [[PUBLIC]] 與 [[/PUBLIC]]，中間可自由撰寫。沒有工作經驗可用課程專題、社團或實習，詳細範例見填寫指南。</p>
-    <p><strong>也可以插入履歷／證照圖片：</strong>把圖片放在公開區，執行 syncKnowledgeBase 後，先用 previewImageText 核對辨識文字，再到 LINE 提問。圖片未變且有快取時會沿用結果，每次問答不會重做 OCR；純照片可在旁邊補上圖說。</p>
+    <p><strong>也可以插入作品圖片：</strong>把介面、海報或照片放在公開區，執行 syncKnowledgeBase 後，用 previewImageText 分別核對圖片文字與畫面描述，再到 LINE 提問。辨識結果存在自己的 Drive「LINE 履歷 RAG 索引.json」，不會自動寫回履歷正文；圖片沒變且有快取時會沿用結果。</p>
     <p class="small">使用 Gemini 免費額度時，送出的內容可能被 Google 用於改善服務並由人員審閱。公開區只放願意公開的內容，不要寫電話、住址、證件號碼等個人敏感資料。</p>
     <div class="success">完成判斷：改完公開內容後執行 syncKnowledgeBase，再提問驗證新資料。只改文件不用重新部署程式；改程式則要發布新版本。</div>
+  </section>
+  <section class="step">
+    <span class="number">日後更新</span><h2>更新程式時，先對齊版本再同步</h2>
+    <ol>
+      <li>只使用同一個安裝包的完整程式與 manifest；保留原指令碼屬性及履歷。不要把新版、舊版或單檔、分檔混貼。</li>
+      <li>儲存完成後，關閉同專案其他舊編輯分頁，重新整理目前分頁。執行 checkSetup，確認 version 與安裝包相同。</li>
+      <li>到「部署 → 管理部署」編輯原部署，版本選<strong>「新版本」</strong>並部署；通常沿用原網址。</li>
+      <li>執行 checkDeployment。兩個版本相同、status=ready 後，再看 checkSetup.index：ready 可直接測 LINE；只有 needs_sync 才重跑 syncKnowledgeBase。</li>
+    </ol>
+    <p class="small">若顯示 DEPLOYMENT_VERSION_MISMATCH，程式會保留現有索引。請先修正版本，不要一直重跑同步。若找不到 checkDeployment，代表貼入的程式仍是舊版；若檢查回報無法連線，需核對公開權限與網址，這不等於版本不同。</p>
   </section>
   <footer>
     <p><a href="https://github.com/canlgz/ResumeRAGbot/blob/main/docs/部署指南.md" target="_blank" rel="noopener">詳細安裝與排錯</a> · <a href="https://github.com/canlgz/ResumeRAGbot/blob/main/docs/履歷填寫指南.md" target="_blank" rel="noopener">履歷填寫指南</a> · <a href="https://github.com/canlgz/ResumeRAGbot/blob/main/docs/課堂實作.md" target="_blank" rel="noopener">課堂驗收</a> · <a href="https://github.com/canlgz/ResumeRAGbot" target="_blank" rel="noopener">GitHub 專案</a></p>

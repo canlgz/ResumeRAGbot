@@ -30,7 +30,7 @@ function config_() {
   };
 }
 
-function appVersion_() { return '1.2.1'; }
+function appVersion_() { return '1.2.2'; }
 
 function resumeDocumentId_(value) {
   var match = String(value).match(/^https:\/\/docs\.google\.com\/document\/d\/([A-Za-z0-9_-]+)(?:[\/?#]|$)/);
@@ -331,13 +331,17 @@ function chunkText_(text) {
 /** Run manually once, then via the optional hourly trigger. */
 function syncKnowledgeBase() {
   requireOwner_();
-  return syncKnowledgeBase_();
+  var result = syncKnowledgeBase_();
+  console.log(JSON.stringify(result));
+  return result;
 }
 
 // Private trailing-underscore handler is not callable via google.script.run.
 function syncKnowledgeBase_() {
   var cfg = config_(), props = PropertiesService.getScriptProperties();
   requireValue_(cfg.geminiKey, 'GEMINI_API_KEY');
+  // Run before acquiring a lease or clearing an index. Keep the working bot intact on mismatch.
+  var deployment = requireMatchingDeployment_();
   var lock = LockService.getScriptLock();
   lock.waitLock(5000);
   try {
@@ -355,7 +359,8 @@ function syncKnowledgeBase_() {
       try {
         if (existing && existing.fingerprint === source.fingerprint) {
           props.setProperty('LAST_SYNC_STATUS', 'UNCHANGED');
-          return { status: 'unchanged', chunks: existing.chunks.length, images: source.imageCount };
+          return { status: 'unchanged', version: appVersion_(), deploymentCheck: deployment.status,
+            chunks: existing.chunks.length, images: source.imageCount };
         }
       } catch (_) { /* Rebuild a missing/corrupt index. */ }
     }
@@ -376,6 +381,7 @@ function syncKnowledgeBase_() {
     // The document may have changed while embeddings were being built.
     if (readPublicSource_(cfg).fingerprint !== source.fingerprint) throw new Error('SOURCE_CHANGED_DURING_SYNC');
     var index = { version: 2, docId: cfg.docId, embeddingModel: cfg.embeddingModel,
+      builtWithAppVersion: appVersion_(),
       dimensions: cfg.dimensions, fingerprint: source.fingerprint,
       builtAt: new Date().toISOString(), chunks: chunks,
       imageTexts: hydrated.imageTexts, imageSources: hydrated.imageSources };
@@ -383,7 +389,8 @@ function syncKnowledgeBase_() {
     props.setProperties({ INDEX_FILE_ID: newFile.getId(), INDEX_FINGERPRINT: source.fingerprint,
       LAST_SYNC_STATUS: 'OK', LAST_SYNC_AT: index.builtAt });
     safeLog_('SYNC_OK');
-    return { status: 'ok', chunks: index.chunks.length, images: source.imageCount, updatedAt: index.builtAt };
+    return { status: 'ok', version: appVersion_(), deploymentCheck: deployment.status,
+      chunks: index.chunks.length, images: source.imageCount, updatedAt: index.builtAt };
   } catch (error) {
     // No stale resume answers after deletion, malformed markers or permission failure.
     clearIndex_();
@@ -653,6 +660,7 @@ function ragErrorMessage_(error) {
     return 'Google Gemini API 驗證或存取權限失敗（HTTP ' + code.slice(-3) + '）。請管理者檢查 API Key 與專案權限。';
   }
   if (code === 'MISSING_GEMINI_API_KEY') return '尚未設定 Gemini API Key，請管理者完成設定後再試。';
+  if (code === 'DEPLOYMENT_VERSION_MISMATCH') return 'GAS 編輯器與 LINE 正式部署的程式版本不同。請管理者先執行 checkDeployment 並更新原部署；現有索引已保留，不必反覆同步。';
   if (/^IMAGE_/.test(code)) return '履歷中的圖片尚無法讀取或辨識，請履歷主人依同步記錄檢查圖片格式、清晰度與公開範圍，再同步知識庫。';
   if (/^ANSWER_/.test(code)) return '這次 AI 回答未完成或未通過來源檢查，請稍後再試。這不代表履歷沒有相關資料。';
   if (/^GEMINI_HTTP_5\d\d$/.test(code)) {
@@ -776,12 +784,12 @@ function answerQuestion_(question, cfg, originalQuestion) {
   var index = loadIndex_(cfg);
   if (!index) return '履歷資料正在準備中，請稍後再來，或直接與本人聯繫。';
   // Read the current public text before every answer. Removed facts cannot use an old index.
-  if (readPublicSource_(cfg).fingerprint !== index.fingerprint) return '履歷剛更新，正在等待同步。請稍後再試，或直接與本人聯繫。';
+  if (readPublicSource_(cfg).fingerprint !== index.fingerprint) return '履歷資料正在等待同步。請稍後再試，或直接與本人聯繫。';
   var hits = rankChunks_(question, embedQuery_(question, cfg), index.chunks, cfg);
   var result = hits.length ? generateAnswer_(question, hits, cfg)
     : { status: 'missing', reason: 'NO_RELEVANT_CHUNKS' };
   // Guard deletion/edits that happened during generation too.
-  if (readPublicSource_(cfg).fingerprint !== index.fingerprint) return '履歷剛更新，請等待同步後再詢問。';
+  if (readPublicSource_(cfg).fingerprint !== index.fingerprint) return '履歷資料正在等待同步，請稍後再詢問。';
   if (result.status === 'missing') {
     safeLog_(result.reason);
     return missingAnswer_(recordUnansweredQuestion_(originalQuestion || question, result.reason, cfg));
@@ -958,7 +966,8 @@ function lineReply_(token, messages, cfg) {
 
 // ===== Webhook.gs =====
 function doGet() {
-  return webhookOutput_('LINE 履歷助理已部署。版本 ' + appVersion_());
+  return webhookOutput_('LINE 履歷助理已部署。版本 ' + appVersion_() +
+    '<!--RESUMERAGBOT_VERSION=' + appVersion_() + '-->');
 }
 
 function doPost(e) {
@@ -1122,6 +1131,59 @@ function rotateWebhookToken() {
   return showWebhookUrl();
 }
 
+/** Owner-only comparison of saved editor code and the configured public /exec URL. */
+function checkDeployment() {
+  requireOwner_();
+  var result = deploymentVersionStatus_();
+  console.log(JSON.stringify(result));
+  return result;
+}
+
+function deploymentVersionStatus_() {
+  var result = { status: 'not_configured', editorVersion: appVersion_(), webAppVersion: null };
+  var url;
+  try { url = publicWebAppUrl_(); } catch (_) {
+    result.message = '尚未設定有效的正式 /exec 網址；首次安裝可先同步，部署後再執行 checkDeployment。';
+    return result;
+  }
+  try {
+    var response = UrlFetchApp.fetch(url + '?version_check=' + Date.now(), {
+      method: 'get', followRedirects: true, muteHttpExceptions: true,
+      headers: { 'Cache-Control': 'no-cache' }
+    });
+    result.httpStatus = response.getResponseCode();
+    if (result.httpStatus !== 200) {
+      result.status = 'unreachable';
+      result.message = '正式網址回傳 HTTP ' + result.httpStatus + '，無法確認版本。請確認部署以「我」執行、「所有人」可存取。';
+      return result;
+    }
+    var body = response.getContentText();
+    var match = body.match(/RESUMERAGBOT_VERSION=([0-9]+\.[0-9]+\.[0-9]+)(?![0-9.])/)
+      || body.match(/LINE 履歷助理已部署。版本\s+([0-9]+\.[0-9]+\.[0-9]+)(?![0-9.])/);
+    if (!match) {
+      result.status = 'unrecognized';
+      result.message = '正式網址沒有可辨識的版本資訊，尚未確認一致。請用無痕視窗開啟不含 key 的 /exec 網址，核對版本及是否要求登入。';
+      return result;
+    }
+    result.webAppVersion = match[1];
+    result.status = result.webAppVersion === result.editorVersion ? 'ready' : 'version_mismatch';
+    result.message = result.status === 'ready' ? '編輯器與正式部署版本一致。' :
+      '版本不一致：編輯器 ' + result.editorVersion + '、正式部署 ' + result.webAppVersion +
+      '。先確認兩者要使用的版本；下載的安裝包、完整程式與 manifest 必須來自同一版。儲存並重新整理編輯器，再到「部署 → 管理部署」編輯原部署，版本選「新版本」。';
+  } catch (_) {
+    result.status = 'unreachable';
+    result.message = '暫時無法連線到正式網址，無法確認版本；這不代表版本不同。請稍後再執行 checkDeployment，或用無痕視窗核對。';
+  }
+  return result;
+}
+
+function requireMatchingDeployment_() {
+  var result = deploymentVersionStatus_();
+  // Only a confirmed mismatch blocks a rebuild. A probe failure is reported as unknown.
+  if (result.status === 'version_mismatch') throw new Error('DEPLOYMENT_VERSION_MISMATCH');
+  return result;
+}
+
 function checkSetup() {
   requireOwner_();
   var cfg = config_();
@@ -1151,20 +1213,23 @@ function checkSetup() {
     try {
       var index = loadIndex_(cfg);
       result.index = index ? (index.fingerprint === source.fingerprint ? 'ready' : 'needs_sync') : 'missing';
+      result.indexBuiltWith = index && index.builtWithAppVersion || 'unknown';
     } catch (error) {
       result.index = errorCode_(error) === 'UNEXPECTED_ERROR' ? 'INDEX_INVALID' : errorCode_(error);
     }
   } else result.index = 'unchecked';
-  try { publicWebAppUrl_(); result.deployment = 'url_configured'; } catch (_) {}
+  result.deploymentCheck = deploymentVersionStatus_();
+  if (result.deploymentCheck.status !== 'not_configured') result.deployment = 'url_configured';
   if (result.document !== 'ready') result.nextSteps.push('文件尚未就緒（' + result.document + '）：先執行 initializeProject，或檢查文件權限、分頁及公開標記。');
   ['LINE_CHANNEL_ACCESS_TOKEN', 'GEMINI_API_KEY'].forEach(function (key) {
     if (!result.credentials[key]) result.nextSteps.push('在「專案設定 → 指令碼屬性」填入自己的 ' + key + '；不要填 YOUR_ 等範例值。');
   });
   if (!result.credentials.WEBHOOK_TOKEN) result.nextSteps.push('執行 initializeProject 產生入口密鑰；若手動改過，請按安裝說明恢復有效設定。');
-  if (result.document === 'ready' && result.credentials.GEMINI_API_KEY && result.index !== 'ready') {
+  if (result.document === 'ready' && result.credentials.GEMINI_API_KEY && result.index !== 'ready' &&
+      result.deploymentCheck.status !== 'version_mismatch') {
     result.nextSteps.push('索引尚未就緒（' + result.index + '）：執行 syncKnowledgeBase，再執行 checkSetup。');
   }
-  if (result.publicImages) result.nextSteps.push('公開區有 ' + result.publicImages + ' 張圖片；同步時辨識文字，完成後可執行 previewImageText 核對辨識內容。');
+  if (result.publicImages) result.nextSteps.push('公開區有 ' + result.publicImages + ' 張圖片；同步時辨識文字及畫面，完成後可執行 previewImageText 核對。');
   var answerTest = PropertiesService.getScriptProperties().getProperty('LAST_ANSWER_TEST') || 'NOT_RUN';
   result.answerTest = answerTest;
   if (result.index === 'ready') {
@@ -1176,7 +1241,8 @@ function checkSetup() {
   }
   if (result.credentials.LINE_CHANNEL_ACCESS_TOKEN) result.nextSteps.push('執行 testLineConnection，確認 Token 有效且帳號名稱正確。');
   if (result.deployment !== 'url_configured') result.nextSteps.push('部署網頁應用程式（我／所有人），把正式 /exec 網址存入 WEB_APP_URL。');
-  else result.nextSteps.push('執行 showWebhookUrl，把完整結果存到 LINE，開啟 Use webhook 後傳送「選單」。');
+  else if (result.deploymentCheck.status !== 'ready') result.nextSteps.push(result.deploymentCheck.message);
+  else result.nextSteps.push('正式部署版本一致。執行 showWebhookUrl，把完整結果存到 LINE，開啟 Use webhook 後傳送「選單」。');
   if (!cfg.enabled) result.nextSteps.push('目前 BOT_ENABLED=false；要測試問答請改成 true。');
   console.log(JSON.stringify(result));
   if (result.documentUrl) console.log('履歷文件：' + result.documentUrl);
@@ -1194,8 +1260,9 @@ function previewImageText() {
     return { section: entry.section, tabId: entry.tabId, status: result.status, text: result.text,
       transcription: result.transcription || '', visualDescription: result.visualDescription || '' };
   });
-  console.log(JSON.stringify({ status: 'ready', images: images }));
-  return { status: 'ready', images: images };
+  var result = { status: 'ready', version: appVersion_(), indexBuiltWith: index.builtWithAppVersion || 'unknown', images: images };
+  console.log(JSON.stringify(result));
+  return result;
 }
 
 /** Checks the bot account only; never sends a LINE message. */

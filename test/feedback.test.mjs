@@ -174,6 +174,6 @@ test('a document edit during an insufficient-evidence answer asks for sync witho
     return previous(call);
   };
   gas.doPost(input([event('未提供的問題')]));
-  assert.match(reply(state), /履歷剛更新/);
+  assert.match(reply(state), /等待同步/);
   assert.equal(state.documentWrites, 0);
 });

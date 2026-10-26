@@ -61,7 +61,7 @@ test('anonymous and other-account HtmlService callers cannot invoke management f
   for (const email of ['', 'visitor@example.test']) {
     state.activeEmail = email;
     for (const fn of ['initializeProject', 'showWebhookUrl', 'rotateWebhookToken', 'checkSetup',
-      'installHourlySync', 'removeHourlySync', 'testResumeAnswer', 'testLineConnection', 'previewImageText', 'syncKnowledgeBase']) {
+      'installHourlySync', 'removeHourlySync', 'testResumeAnswer', 'testLineConnection', 'previewImageText', 'syncKnowledgeBase', 'checkDeployment']) {
       assert.throws(() => gas[fn](), /OWNER_ONLY/);
     }
   }

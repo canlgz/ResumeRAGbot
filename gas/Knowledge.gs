@@ -125,13 +125,17 @@ function chunkText_(text) {
 /** Run manually once, then via the optional hourly trigger. */
 function syncKnowledgeBase() {
   requireOwner_();
-  return syncKnowledgeBase_();
+  var result = syncKnowledgeBase_();
+  console.log(JSON.stringify(result));
+  return result;
 }
 
 // Private trailing-underscore handler is not callable via google.script.run.
 function syncKnowledgeBase_() {
   var cfg = config_(), props = PropertiesService.getScriptProperties();
   requireValue_(cfg.geminiKey, 'GEMINI_API_KEY');
+  // Run before acquiring a lease or clearing an index. Keep the working bot intact on mismatch.
+  var deployment = requireMatchingDeployment_();
   var lock = LockService.getScriptLock();
   lock.waitLock(5000);
   try {
@@ -149,7 +153,8 @@ function syncKnowledgeBase_() {
       try {
         if (existing && existing.fingerprint === source.fingerprint) {
           props.setProperty('LAST_SYNC_STATUS', 'UNCHANGED');
-          return { status: 'unchanged', chunks: existing.chunks.length, images: source.imageCount };
+          return { status: 'unchanged', version: appVersion_(), deploymentCheck: deployment.status,
+            chunks: existing.chunks.length, images: source.imageCount };
         }
       } catch (_) { /* Rebuild a missing/corrupt index. */ }
     }
@@ -170,6 +175,7 @@ function syncKnowledgeBase_() {
     // The document may have changed while embeddings were being built.
     if (readPublicSource_(cfg).fingerprint !== source.fingerprint) throw new Error('SOURCE_CHANGED_DURING_SYNC');
     var index = { version: 2, docId: cfg.docId, embeddingModel: cfg.embeddingModel,
+      builtWithAppVersion: appVersion_(),
       dimensions: cfg.dimensions, fingerprint: source.fingerprint,
       builtAt: new Date().toISOString(), chunks: chunks,
       imageTexts: hydrated.imageTexts, imageSources: hydrated.imageSources };
@@ -177,7 +183,8 @@ function syncKnowledgeBase_() {
     props.setProperties({ INDEX_FILE_ID: newFile.getId(), INDEX_FINGERPRINT: source.fingerprint,
       LAST_SYNC_STATUS: 'OK', LAST_SYNC_AT: index.builtAt });
     safeLog_('SYNC_OK');
-    return { status: 'ok', chunks: index.chunks.length, images: source.imageCount, updatedAt: index.builtAt };
+    return { status: 'ok', version: appVersion_(), deploymentCheck: deployment.status,
+      chunks: index.chunks.length, images: source.imageCount, updatedAt: index.builtAt };
   } catch (error) {
     // No stale resume answers after deletion, malformed markers or permission failure.
     clearIndex_();

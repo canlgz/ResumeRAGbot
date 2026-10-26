@@ -105,7 +105,7 @@ test('index lifecycle embeds only public facts, reuses unchanged index, and revo
   assert.equal(gas.syncKnowledgeBase().status, 'unchanged');
   assert.equal(state.calls.length, 1);
   state.text = '';
-  assert.match(gas.answerQuestion_('專案', gas.config_(), 'visitor'), /更新/);
+  assert.match(gas.answerQuestion_('專案', gas.config_(), 'visitor'), /等待同步/);
   assert.equal(state.calls.length, 1);
   assert.throws(() => gas.syncKnowledgeBase(), /NO_PUBLIC_CONTENT/);
   assert.equal(state.properties.get('INDEX_FILE_ID'), undefined);
@@ -204,5 +204,5 @@ test('complete question path retrieves, generates, validates evidence, and refus
     if (call.url.endsWith(':generateContent')) state.text = '';
     return result;
   };
-  assert.match(gas.answerQuestion_('專案成果', gas.config_(), 'visitor'), /剛更新/);
+  assert.match(gas.answerQuestion_('專案成果', gas.config_(), 'visitor'), /等待同步/);
 });

@@ -23,7 +23,7 @@
 2. 儲存 manifest 後，從左側檔案欄點回「程式碼.gs／Code.gs」，在上方函式下拉選單選 `initializeProject` 並執行；授權時勾「選取全部」，再從記錄的「履歷文件：」網址打開自動建立的履歷。
 3. 建立 LINE Messaging API 頻道及 Gemini API Key。在「專案設定 → 指令碼屬性」按「編輯指令碼屬性」，新增兩個金鑰、修改既有的 `DISPLAY_NAME`，再按「儲存指令碼屬性」。
 4. 依序執行 `testLineConnection`、`checkSetup`、`syncKnowledgeBase`、`checkSetup` 與 `testResumeAnswer`。
-5. 「部署 → 新增部署作業」，點「選取類型」旁的齒輪選網頁應用程式，以「我」執行、「所有人」可存取，將正式 `/exec` 網址填入 `WEB_APP_URL`。
+5. 「部署 → 新增部署作業」，點「選取類型」旁的齒輪選網頁應用程式，以「我」執行、「所有人」可存取，將正式 `/exec` 網址填入 `WEB_APP_URL`。執行 `checkDeployment`，確認編輯器及正式網址版本相同、`status=ready`。
 6. 執行 `showWebhookUrl`，把完整結果貼到 LINE Webhook URL，開啟 Use webhook、關閉自動回應，再掃 QR Code 加入好友測試。
 
 GitHub 存放原始碼；機器人執行在學生自己的 GAS 專案。程式不內建任何人的文件、部署網址或正式金鑰。
@@ -40,7 +40,7 @@ GitHub 存放原始碼；機器人執行在學生自己的 GAS 專案。程式�
 | 待補充問題 | 資料不足時寫回原文件，同題合併次數，保留主人註記 |
 | 更新同步 | 手動或每小時同步；來源改動後停止引用舊索引 |
 | 錯誤說明 | 區分 API 配額、權限、服務錯誤及 AI 回答檢查失敗 |
-| 安裝診斷 | checkSetup 提供文件直達連結與下一步；LINE Token 可獨立測試，部署頁顯示版本 |
+| 安裝診斷 | checkSetup 比對編輯器、正式部署與索引狀態；checkDeployment 可獨立核對版本，確認不同時同步會保留現有索引並停止重建 |
 | 問答次數 | 不設程式自訂的每日／每小時額度，供應商限制仍適用 |
 
 ```mermaid
