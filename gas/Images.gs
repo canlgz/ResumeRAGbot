@@ -1,4 +1,13 @@
-/** Serialize image positions using per-read tokens that source text cannot impersonate. */
+/**
+ * 【圖片知識擷取：保留位置、辨識文字與觀察畫面】
+ * 只有文件公開區中的圖片會送給 Gemini，私人區、待補充區及未選分頁皆排除。
+ * 圖片辨識只在同步時執行；聊天時沿用快取，不會每題重新讀圖。
+ */
+
+/**
+ * 依文件中的順序讀出文字及圖片位置，支援表格、行內與定位圖片。
+ * 每次讀取產生專用圖片代碼，正文不能偽造代碼來讀取私人圖片。
+ */
 function documentSourceText_(body) {
   var images = {}, sequence = 0, nonce = Utilities.getUuid(), output = [];
   function imageToken(image, unsupported) {
@@ -26,7 +35,7 @@ function documentSourceText_(body) {
           walk(child);
         }
       } else output.push(text);
-      // Positioned images belong to their anchor paragraph, regardless of visual offsets.
+      // 定位圖片的公開範圍以錨定段落判斷，不依畫面上偏移到哪裡判斷。
       if (typeof paragraph.getPositionedImages === 'function') {
         var positioned = paragraph.getPositionedImages();
         if (positioned.length && text.split(/\r?\n/).some(function (line) {
@@ -47,6 +56,10 @@ function documentSourceText_(body) {
   return { text: output.join(''), images: images };
 }
 
+/**
+ * 讀取圖片像素、檢查格式與大小，分別建立原圖雜湊及辨識快取鍵。
+ * 原圖雜湊綁定校對；快取鍵另含模型與辨識規則版本。
+ */
 function readSourceImage_(reference, cfg) {
   var blob;
   try { blob = reference.image.getBlob(); } catch (_) { throw new Error('IMAGE_READ_FAILED'); }
@@ -57,15 +70,18 @@ function readSourceImage_(reference, cfg) {
   }
   var bytes = blob.getBytes();
   if (!bytes.length) throw new Error('IMAGE_EMPTY');
-  // Base64 and JSON must fit Gemini's 20 MB inline request limit.
+  // 圖片轉 Base64 後會變大，連同 JSON 須符合 Gemini 的行內請求大小限制。
   if (bytes.length > 10 * 1024 * 1024) throw new Error('IMAGE_TOO_LARGE');
   var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, bytes)
     .map(function (b) { return ('0' + ((b + 256) % 256).toString(16)).slice(-2); }).join('');
-  // Version 2 also describes visible artwork; old OCR-only results must not be reused.
+  // 第 2 版辨識加入畫面觀察，不能沿用更早只有文字轉寫的快取。
   var key = sha256_(JSON.stringify({ digest: digest, mimeType: mimeType, model: cfg.imageModel, ocrVersion: 2 }));
-  return { key: key, mimeType: mimeType, blob: blob };
+  return { key: key, digest: digest, mimeType: mimeType, blob: blob };
 }
 
+/**
+ * 只在同步時把公開圖片交給模型，分別取得可見文字與畫面觀察。
+ */
 function recognizeImageText_(image, cfg) {
   var data = geminiRequest_(cfg.imageModel, 'generateContent', {
     systemInstruction: { parts: [{ text: [
@@ -97,17 +113,20 @@ function recognizeImageText_(image, cfg) {
   return validateImageText_(parsed);
 }
 
+/**
+ * 檢查辨識格式，將文字轉寫與畫面描述保留為可區分的兩部分。
+ */
 function validateImageText_(value) {
   if (!value || ['readable', 'no_text', 'unreadable'].indexOf(value.status) < 0 ||
       typeof value.text !== 'string' || typeof value.visualDescription !== 'string') throw new Error('IMAGE_TEXT_INVALID');
   if (value.status === 'unreadable') throw new Error('IMAGE_TEXT_UNREADABLE');
-  // Cached text already combines both fields. Rebuild it from transcription to remain idempotent.
+  // 快取 text 已合併兩種內容；重新從轉寫組合，避免重複附加畫面描述。
   var rawText = Object.prototype.hasOwnProperty.call(value, 'transcription') ? value.transcription : value.text;
   if (typeof rawText !== 'string') throw new Error('IMAGE_TEXT_INVALID');
   var transcription = rawText.trim(), visual = value.visualDescription.trim();
   if ((value.status === 'readable' && !transcription && !visual) ||
       (value.status === 'no_text' && (transcription || visual))) throw new Error('IMAGE_TEXT_INVALID');
-  // Keep marker-like image content literal; it never changes document privacy scope or headings.
+  // 圖中的 PUBLIC 等字樣只當一般文字，不能改變文件的隱私範圍或標題。
   function clean(text) {
     return text.split(/\r?\n/).filter(function (line) {
       return !/\[待填[^\]]*\]|\[選填[^\]]*\]/.test(line);
@@ -120,8 +139,12 @@ function validateImageText_(value) {
     transcription: transcription, visualDescription: visual };
 }
 
+/**
+ * 沿用有效辨識快取，套用主人校正，再將圖片內容轉成可檢索片段。
+ * imageTexts 保留 AI 原始結果；imageReviewedTexts 保存目前套用的校正。
+ */
 function hydrateSourceImages_(source, previous, cfg) {
-  var cache = {}, imageTexts = {}, imageSources = [], chunks = [];
+  var cache = {}, imageTexts = {}, imageReviewedTexts = {}, imageSources = [], chunks = [];
   if (previous && previous.imageTexts && typeof previous.imageTexts === 'object') cache = previous.imageTexts;
   source.chunks.forEach(function (chunk) {
     if (!chunk.imageKey) { chunks.push({ section: chunk.section, text: chunk.text, tabId: chunk.tabId }); return; }
@@ -133,13 +156,16 @@ function hydrateSourceImages_(source, previous, cfg) {
       if (!result) result = recognizeImageText_(source.images[key], cfg);
       imageTexts[key] = result;
     }
-    imageSources.push({ imageKey: key, section: chunk.section, tabId: chunk.tabId });
-    var chars = Array.from(result.text);
+    var digest = source.images[key].digest, correction = (source.imageCorrections || {})[digest];
+    var effective = effectiveImageText_(result, correction);
+    if (correction) imageReviewedTexts[key] = effective;
+    imageSources.push({ imageKey: key, digest: digest, section: chunk.section, tabId: chunk.tabId });
+    var chars = Array.from(effective.text);
     for (var start = 0; start < chars.length; start += 620) {
       chunks.push({ section: chunk.section, text: chars.slice(start, start + 700).join(''),
         tabId: chunk.tabId, imageKey: key });
       if (start + 700 >= chars.length) break;
     }
   });
-  return { chunks: chunks, imageTexts: imageTexts, imageSources: imageSources };
+  return { chunks: chunks, imageTexts: imageTexts, imageReviewedTexts: imageReviewedTexts, imageSources: imageSources };
 }

@@ -1,4 +1,14 @@
-/** Run in the Apps Script editor. Public management functions enforce owner identity. */
+/**
+ * 【履歷主人在 GAS 編輯器執行的管理入口】
+ * 初次安裝依序：initializeProject → testLineConnection → syncKnowledgeBase → checkSetup。
+ * 完成正式部署後用 checkDeployment 核對版本；用 openImageReview 開啟圖片校對頁。
+ * 這些管理函式先核對登入身分，訪客不能經由網頁任意呼叫。
+ */
+
+/**
+ * 【學生首次執行】建立缺少的預設設定與履歷，再顯示下一步。
+ * 只補缺少的值，不會覆蓋原金鑰、文件 ID 或主人已修改的內容。
+ */
 function initializeProject() {
   requireOwner_();
   var props = PropertiesService.getScriptProperties();
@@ -16,7 +26,10 @@ function initializeProject() {
   return checkSetup();
 }
 
-/** Owner editor utility. Copy the secret URL only to LINE Developers. */
+/**
+ * 【部署後執行】輸出要貼到 LINE Developers 的完整秘密入口網址。
+ * 含 ?key= 的網址只供本人設定頻道，不可貼到公開作業或 GitHub。
+ */
 function showWebhookUrl() {
   requireOwner_();
   var url = publicWebAppUrl_();
@@ -27,16 +40,22 @@ function showWebhookUrl() {
   return webhookUrl;
 }
 
+/**
+ * 讀取本人明確設定的正式 /exec 網址；不把 /dev 自行改寫成 /exec。
+ */
 function publicWebAppUrl_() {
   var url = (PropertiesService.getScriptProperties().getProperty('WEB_APP_URL') || '').trim();
-  // Each installation must use its own explicit public deployment URL.
-  // getService().getUrl() can return /dev; never rewrite that deployment ID.
+  // 每位學生都須設定自己的正式部署網址，不能沿用教師的網址。
+  // 在編輯器執行時 getService().getUrl() 可能是 /dev，不能改字尾冒充正式部署。
   var match = url.match(/^(https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec)(?:[?#].*)?$/);
   if (!match) throw new Error('SET_PUBLIC_WEB_APP_URL');
-  // Ignore a pasted old query/key; showWebhookUrl always uses the current secret.
+  // 若貼入舊的查詢參數就先去掉，完整入口一律使用目前密鑰重新組合。
   return match[1];
 }
 
+/**
+ * 重新產生入口密鑰；更換後須把新完整網址重新貼到 LINE 後台。
+ */
 function rotateWebhookToken() {
   requireOwner_();
   publicWebAppUrl_();
@@ -44,7 +63,9 @@ function rotateWebhookToken() {
   return showWebhookUrl();
 }
 
-/** Owner-only comparison of saved editor code and the configured public /exec URL. */
+/**
+ * 【版本檢查】比較編輯器與實際正式網址，不發送 LINE 訊息。
+ */
 function checkDeployment() {
   requireOwner_();
   var result = deploymentVersionStatus_();
@@ -52,6 +73,10 @@ function checkDeployment() {
   return result;
 }
 
+/**
+ * 讀取不含密鑰的正式網址，從回應辨識程式版本。
+ * 連不上或讀不到版本屬於「無法確認」，不冒稱已確認版本不同。
+ */
 function deploymentVersionStatus_() {
   var result = { status: 'not_configured', editorVersion: appVersion_(), webAppVersion: null };
   var url;
@@ -90,13 +115,20 @@ function deploymentVersionStatus_() {
   return result;
 }
 
+/**
+ * 只在已確認版本不同時阻止同步；此時原索引仍保留。
+ */
 function requireMatchingDeployment_() {
   var result = deploymentVersionStatus_();
-  // Only a confirmed mismatch blocks a rebuild. A probe failure is reported as unknown.
+  // 已確認不同才阻止重建；連不上只表示無法確認，兩者必須分開。
   if (result.status === 'version_mismatch') throw new Error('DEPLOYMENT_VERSION_MISMATCH');
   return result;
 }
 
+/**
+ * 【安裝診斷】彙整文件、金鑰是否填妥、索引、主題選單與部署狀態。
+ * credentials=true 不等於 API 已通過驗證，仍須做連線及問答測試。
+ */
 function checkSetup() {
   requireOwner_();
   var cfg = config_();
@@ -127,6 +159,8 @@ function checkSetup() {
       var index = loadIndex_(cfg);
       result.index = index ? (index.fingerprint === source.fingerprint ? 'ready' : 'needs_sync') : 'missing';
       result.indexBuiltWith = index && index.builtWithAppVersion || 'unknown';
+      result.quickReplies = { status: result.index === 'ready' && index.quickTopics ? index.quickTopics.status : 'needs_sync',
+        labels: result.index === 'ready' && index.quickTopics ? index.quickTopics.topics.map(function (topic) { return topic.label; }) : [] };
     } catch (error) {
       result.index = errorCode_(error) === 'UNEXPECTED_ERROR' ? 'INDEX_INVALID' : errorCode_(error);
     }
@@ -142,12 +176,17 @@ function checkSetup() {
       result.deploymentCheck.status !== 'version_mismatch') {
     result.nextSteps.push('索引尚未就緒（' + result.index + '）：執行 syncKnowledgeBase，再執行 checkSetup。');
   }
-  if (result.publicImages) result.nextSteps.push('公開區有 ' + result.publicImages + ' 張圖片；同步時辨識文字及畫面，完成後可執行 previewImageText 核對。');
+  if (result.publicImages) result.nextSteps.push('公開區有 ' + result.publicImages + ' 張圖片；同步後可執行 previewImageText，或在完成部署後執行 openImageReview 校對及設定作品預覽。');
+  if (result.index === 'ready' && result.quickReplies.status === 'needs_sync') {
+    result.nextSteps.push('這份舊索引尚未建立代表主題；版本一致後執行 syncKnowledgeBase，會補建選單並沿用原向量。');
+  } else if (result.index === 'ready' && result.quickReplies.status === 'insufficient_content') {
+    result.nextSteps.push('目前可區分的履歷內容不足三組，暫不顯示代表主題；補上實際的不同經驗或作品後再同步，仍可直接提問。');
+  }
   var answerTest = PropertiesService.getScriptProperties().getProperty('LAST_ANSWER_TEST') || 'NOT_RUN';
   result.answerTest = answerTest;
   if (result.index === 'ready') {
     if (answerTest === 'NOT_RUN') result.nextSteps.push('執行 testResumeAnswer，確認 Gemini 能根據文件回答。');
-    // ANSWER_* is only stored by versions before 1.1.5; rerunning records OK or GEMINI_OK.
+    // ANSWER_* 是舊版留下的狀態，重新測試可更新為 OK 或 GEMINI_OK。
     else if (/^ANSWER_/.test(answerTest)) result.nextSteps.push('上次 testResumeAnswer 的結果（' + answerTest + '）來自舊版程式，不代表設定錯誤；再執行一次 testResumeAnswer 即可更新。');
     else if (answerTest === 'NO_ANSWER') result.nextSteps.push('上次 testResumeAnswer 沒有產生附來源的回答：查看當次執行記錄（例如等待同步或資料不足），處理後再執行。');
     else if (answerTest !== 'OK' && answerTest !== 'GEMINI_OK') result.nextSteps.push('上次 testResumeAnswer 未通過（' + answerTest + '）：依安裝說明「常見錯誤」處理後，再執行 testResumeAnswer。');
@@ -163,14 +202,17 @@ function checkSetup() {
   return result;
 }
 
-/** Owner-only preview of already indexed image text; does not call Gemini. */
+/**
+ * 【辨識預覽】讀取已同步的圖片文字／校對結果，不重新呼叫 Gemini。
+ */
 function previewImageText() {
   requireOwner_();
   var cfg = config_(), source = readPublicSource_(cfg), index = loadIndex_(cfg);
   if (!index || index.fingerprint !== source.fingerprint) throw new Error('IMAGE_PREVIEW_NEEDS_SYNC');
   var images = (index.imageSources || []).map(function (entry) {
-    var result = index.imageTexts[entry.imageKey];
+    var result = (index.imageReviewedTexts || {})[entry.imageKey] || index.imageTexts[entry.imageKey];
     return { section: entry.section, tabId: entry.tabId, status: result.status, text: result.text,
+      reviewed: Boolean((index.imageReviewedTexts || {})[entry.imageKey]),
       transcription: result.transcription || '', visualDescription: result.visualDescription || '' };
   });
   var result = { status: 'ready', version: appVersion_(), indexBuiltWith: index.builtWithAppVersion || 'unknown', images: images };
@@ -178,7 +220,9 @@ function previewImageText() {
   return result;
 }
 
-/** Checks the bot account only; never sends a LINE message. */
+/**
+ * 【連線測試】只讀取 LINE 帳號名稱，確認 Token 屬於自己的頻道。
+ */
 function testLineConnection() {
   requireOwner_();
   var result;
@@ -204,6 +248,9 @@ function testLineConnection() {
   return result;
 }
 
+/**
+ * 安裝每小時同步觸發器；時間由 GAS 排程，不保證精準整點。
+ */
 function installHourlySync() {
   requireOwner_();
   ScriptApp.getProjectTriggers().filter(function (trigger) {
@@ -213,6 +260,9 @@ function installHourlySync() {
   return { status: 'installed' };
 }
 
+/**
+ * 移除這個專案的同步排程，不會刪除履歷或索引。
+ */
 function removeHourlySync() {
   requireOwner_();
   ScriptApp.getProjectTriggers().filter(function (trigger) {
@@ -220,7 +270,9 @@ function removeHourlySync() {
   }).forEach(function (trigger) { ScriptApp.deleteTrigger(trigger); });
 }
 
-/** Calls Gemini but never sends a LINE message. */
+/**
+ * 【問答測試】使用 Gemini 驗證檢索及回答，不傳 LINE 訊息。
+ */
 function testResumeAnswer() {
   requireOwner_();
   var props = PropertiesService.getScriptProperties();
@@ -228,14 +280,14 @@ function testResumeAnswer() {
     var answer = answerQuestion_('請介紹這位求職者的專長與代表作品。', config_());
   } catch (error) {
     var code = errorCode_(error);
-    // ANSWER_* only follows a successful Gemini response: key, model and index all work.
-    // The AI's quote check fails now and then; that must not block a student's installation.
+    // ANSWER_* 表示 Gemini 已成功回應，金鑰、模型與索引均可運作。
+    // 偶發的 AI 引用不合格不等於安裝失敗，避免學生卡在同一步反覆測試。
     if (/^ANSWER_/.test(code)) {
       props.setProperty('LAST_ANSWER_TEST', 'GEMINI_OK');
       var note = '安裝設定正常：Gemini 已成功回應，但這次 AI 的回答沒通過來源檢查（' + code +
         '），所以沒有顯示回答。這是 AI 偶發的狀況，不是設定錯誤，可以直接繼續下一步；LINE 上偶爾也可能請訪客稍後再試。';
       console.log(note);
-      // Owner-only editor run: show which public-resume quote failed so the cause can be reported.
+      // 僅限主人在編輯器測試，列出未通過的公開引用以便核對。
       (error.details || []).forEach(function (d) {
         console.log('未對上原文的引用（片段 ' + d.id + '，相符 ' + d.coverage + '%）：' + d.quote);
       });
@@ -245,7 +297,7 @@ function testResumeAnswer() {
     console.log('testResumeAnswer 未通過（' + code + '）：' + ragErrorMessage_(error));
     throw error;
   }
-  // Only a grounded answer carries a source line; waiting/missing replies are not a pass.
+  // 有證據的回答才會帶來源；「等待同步」或「資料不足」不能算驗收通過。
   props.setProperty('LAST_ANSWER_TEST', /\n\n資料來源：/.test(answer) ? 'OK' : 'NO_ANSWER');
   console.log(answer);
   return answer;

@@ -72,7 +72,7 @@ test('duplicate LINE event is ignored; repeated questions merge while preserving
 test('successful answers and unavailable/stale indexes do not create a maintenance entry', () => {
   const { gas, state } = ready('answered');
   gas.doPost(input([event('專案作品')]));
-  assert.match(reply(state), /資料來源/);
+  assert(state.calls.filter(c => c.url.endsWith('/message/reply')).at(-1).body.messages.some(m => m.text?.includes('資料來源')));
   assert.equal(state.documentWrites, 0);
   state.text = source.replace('報表', '報表與圖表');
   gas.doPost(input([event('專案作品', 'stale')]));

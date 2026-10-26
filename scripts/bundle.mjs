@@ -1,5 +1,5 @@
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
-const order = ['Config', 'StarterResume', 'Knowledge', 'Images', 'Gemini', 'Feedback', 'Line', 'Webhook', 'Admin'];
+const order = ['Config', 'StarterResume', 'PortfolioStore', 'QuickTopics', 'Knowledge', 'Images', 'Portfolio', 'Conversation', 'Gemini', 'Feedback', 'Line', 'Chat', 'Review', 'ReviewUi', 'Webhook', 'Admin'];
 const pieces = await Promise.all(order.map(async name => `// ===== ${name}.gs =====\n` + await readFile(new URL(`../gas/${name}.gs`, import.meta.url), 'utf8')));
 const bundled = '// ResumeRAGbot — generated with npm run bundle\n\n' + pieces.join('\n\n');
 const target = new URL('../dist/Code.gs', import.meta.url);

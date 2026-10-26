@@ -10,7 +10,7 @@ export function createGas(options = {}) {
   }));
   const cache = new Map(), files = new Map(), calls = [], logs = [];
   const state = { text: options.text ?? '', tabs: options.tabs, properties, cache, files, calls, logs,
-    response: options.response, documentWrites: 0, saves: 0, createdDocuments: [] };
+    response: options.response, topicResponse: options.topicResponse, documentWrites: 0, saves: 0, createdDocuments: [] };
   const props = {
     getProperty: key => properties.get(key) ?? null,
     setProperty: (key, value) => { properties.set(key, value); return props; },
@@ -74,7 +74,7 @@ export function createGas(options = {}) {
       getEffectiveUser: () => ({ getEmail: () => 'owner@example.test' }) },
     console: { log: value => logs.push(value) },
     PropertiesService: { getScriptProperties: () => props },
-    CacheService: { getScriptCache: () => ({ get: k => cache.get(k) ?? null, put: (k, v) => cache.set(k, v) }) },
+    CacheService: { getScriptCache: () => ({ get: k => cache.get(k) ?? null, put: (k, v) => cache.set(k, v), remove: k => cache.delete(k) }) },
     LockService: { getScriptLock: () => ({ waitLock() {}, tryLock: () => !state.lockBusy, releaseLock() {} }) },
     Utilities: {
       DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' },
@@ -100,12 +100,30 @@ export function createGas(options = {}) {
         return doc;
       } },
     DriveApp: {
+      Access: { PRIVATE: 'PRIVATE', ANYONE_WITH_LINK: 'ANYONE_WITH_LINK', ANYONE: 'ANYONE' },
+      Permission: { NONE: 'NONE', VIEW: 'VIEW' },
       createFile: (name, content) => {
+        const blob = typeof name === 'object' ? name : null;
+        if (blob) { content = ''; name = blob.getName(); }
         const id = 'file-' + (files.size + 1);
-        const file = { name, content, trashed: false, getId: () => id,
-          getBlob: () => ({ getDataAsString: () => file.content }),
+        const file = { name, content, description: '', trashed: false, access: 'PRIVATE', getId: () => id, getName: () => name,
+          getMimeType: () => blob ? blob.getContentType() : 'application/json',
+          getDescription: () => file.description, setDescription(value) { file.description = value; return file; },
+          getBlob: () => blob || ({ getDataAsString: () => file.content }),
+          getSharingAccess: () => file.access,
+          getOwner: () => ({ getEmail: () => file.ownerEmail || 'owner@example.test' }),
+          setSharing(access) {
+            if (state.sharingError || (state.revokeError && access === 'PRIVATE' && file.access !== 'PRIVATE')) throw new Error('private-sharing-error');
+            file.access = access; return file;
+          },
+          setContent(value) { file.content = value; return file; },
+          getUrl: () => 'https://drive.google.com/file/d/' + id + '/view', getResourceKey: () => null,
           setTrashed: value => { file.trashed = value; }, isTrashed: () => file.trashed };
         files.set(id, file); return file;
+      },
+      getFilesByName(name) {
+        const matches = [...files.values()].filter(file => file.name === name && !file.trashed);
+        let i = 0; return { hasNext: () => i < matches.length, next: () => matches[i++] };
       },
       getFileById: id => { if (!files.has(id)) throw new Error('File unavailable'); return files.get(id); }
     },
@@ -114,9 +132,19 @@ export function createGas(options = {}) {
     UrlFetchApp: { fetch: (url, config) => {
       const call = { url, ...config, body: config.payload ? JSON.parse(config.payload) : null };
       calls.push(call);
-      const response = state.response ? state.response(call) : { status: 200, body: {} };
+      let response;
+      if (call.body?.generationConfig?.responseSchema?.properties?.topics) {
+        if (state.topicResponse) response = state.topicResponse(call);
+        else {
+          const groups = JSON.parse(call.body.contents[0].parts[0].text).groups;
+          const topics = ['職涯背景', '專業實作', '合作資訊'].map((label, i) => ({ label, scope: '測試分類 ' + (i + 1),
+            groupIds: groups.filter((_, n) => n % 3 === i).map(group => group.id) }));
+          response = { body: { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({ topics }) }] } }] } };
+        }
+      } else response = state.response ? state.response(call) : { status: 200, body: {} };
       return { getResponseCode: () => response.status ?? 200,
-        getContentText: () => typeof response.text === 'string' ? response.text : JSON.stringify(response.body) };
+        getContentText: () => typeof response.text === 'string' ? response.text : JSON.stringify(response.body),
+        getBlob: () => response.blob || ({ getContentType: () => response.mime || 'application/json', getBytes: () => response.bytes || [] }) };
     } },
     ScriptApp: { getScriptId: () => options.scriptId ?? 'test-script',
       getService: () => ({ getUrl: () => options.serviceUrl ?? null }),

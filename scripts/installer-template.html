@@ -134,7 +134,7 @@
 
   <section class="step">
     <span class="number">步驟 5</span><h2>同步履歷並確認 AI 能回答</h2>
-    <p>依序在函式下拉選單選擇並執行 syncKnowledgeBase → checkSetup → testResumeAnswer。這裡會使用自己的 Gemini API 配額，先保留模擬資料測試即可。</p>
+    <p>依序在函式下拉選單選擇並執行 syncKnowledgeBase → checkSetup → testResumeAnswer。這裡會使用自己的 Gemini API 配額，同時依履歷產生 3–6 個代表關鍵主題，先保留模擬資料測試即可。相同已同步內容之後沿用同一份 Quick Reply，不會每次聊天重新分類。</p>
     <div class="success">完成判斷：document 與 index 都是 ready，testResumeAnswer 沒有出現紅色錯誤，再執行 checkSetup 時 answerTest 為 OK 或 GEMINI_OK。OK 會顯示回答與來源，可對照文件；GEMINI_OK 代表 Gemini 已正常回應、只是這次 AI 回答沒通過來源檢查，屬偶發狀況，不是設定錯誤，直接進行下一步。出現紅色錯誤時，先照記錄的說明與 checkSetup 的「下一步」處理，不必急著部署。</div>
   </section>
 
@@ -174,6 +174,19 @@
     <div class="success">完成判斷：改完公開內容後執行 syncKnowledgeBase，再提問驗證新資料。只改文件不用重新部署程式；改程式則要發布新版本。</div>
   </section>
   <section class="step">
+    <span class="number">步驟 9 · 有作品圖片時</span><h2>校對辨識、開放作品卡片並測試追問</h2>
+    <ol>
+      <li>在履歷公開區插入兩張不同用途的作品圖片，各用自然標題寫上作品名稱，執行 <code>syncKnowledgeBase</code>。</li>
+      <li>回到 GAS「程式碼.gs／Code.gs」，選 <code>openImageReview</code> 並執行；從執行記錄複製<strong>完整管理連結（包含 # 後內容）</strong>，在新分頁開啟。</li>
+      <li>對照原圖，修改「圖片文字」或「畫面描述」，按「儲存校對並同步」。校對資料另外儲存，不會新增到原 Google 文件。</li>
+      <li>逐張勾選公開副本的同意項目，按「開放作品預覽」。只有選中圖片的獨立副本開放持連結者讀取，原文件、索引及校對管理檔不必公開。</li>
+      <li>按「檢查 LINE 作品卡片」驗證格式（不發送訊息）；再到 LINE 輸入「作品圖庫」，點「問這件作品」，接著問「這張配色呢？」。</li>
+      <li>約 10 分鐘內可沿用作品指向；輸入「清除對話」重新開始。若出現額度錯誤，依訊息區分 Google API 配額與安裝問題。</li>
+    </ol>
+    <p class="small">管理連結 20 分鐘有效，僅供本人使用，不轉傳或交作業。圖片可隨時撤回公開預覽，但已傳送、下載或快取的圖片無法收回。學校帳號若禁止公開分享，仍可搜尋圖片內容，作品卡片則無法開放。</p>
+    <div class="success">完成判斷：LINE 能顯示作品圖文卡片、接續回答同一件作品；Quick Reply 為 3–6 個實際履歷主題且不重複，不混入操作指令。內容未改的再次同步，主題不變。內容不足三組時不會編造選單，仍能直接提問。</div>
+  </section>
+  <section class="step">
     <span class="number">日後更新</span><h2>更新程式時，先對齊版本再同步</h2>
     <ol>
       <li>只使用同一個安裝包的完整程式與 manifest；保留原指令碼屬性及履歷。不要把新版、舊版或單檔、分檔混貼。</li>
@@ -181,6 +194,7 @@
       <li>到「部署 → 管理部署」編輯原部署，版本選<strong>「新版本」</strong>並部署；通常沿用原網址。</li>
       <li>執行 checkDeployment。兩個版本相同、status=ready 後，再看 checkSetup.index：ready 可直接測 LINE；只有 needs_sync 才重跑 syncKnowledgeBase。</li>
     </ol>
+    <p>從 v1.2.x 更新到本版，版本一致後執行一次 syncKnowledgeBase 補建代表主題選單。原履歷及辨識規則未變時沿用向量和圖片快取。之後看 checkSetup.quickReplies 的 status 與 labels 確認分類。</p>
     <p class="small">若顯示 DEPLOYMENT_VERSION_MISMATCH，程式會保留現有索引。請先修正版本，不要一直重跑同步。若找不到 checkDeployment，代表貼入的程式仍是舊版；若檢查回報無法連線，需核對公開權限與網址，這不等於版本不同。</p>
   </section>
   <footer>

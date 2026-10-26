@@ -1,4 +1,12 @@
-/** First-run setup: create a resume in the executing student's own Google account. */
+/**
+ * 【首次安裝自動建立學生自己的履歷文件】
+ * 已設定文件 ID 時只沿用，不會因更新程式或重複初始化覆蓋原履歷。
+ * starterResumeText_ 與 docs 的完整範例由文件檢查共同維護。
+ */
+
+/**
+ * 設定沒有文件時才建立本人擁有的範例；有設定就沿用。
+ */
 function ensureResumeDocument_(props) {
   var lock = LockService.getScriptLock();
   lock.waitLock(5000);
@@ -13,7 +21,7 @@ function ensureResumeDocument_(props) {
     props.setProperties({ RESUME_DOC_ID: id, DOC_TAB_IDS: tabId });
     safeLog_('STARTER_DOC_CREATED');
   } catch (_) {
-    // Only the new draft created in this invocation may be removed after a failed setup.
+    // 建立失敗時只能清除此輪新建的草稿，不可刪除學生原有文件。
     if (created) {
       try { DriveApp.getFileById(created.getId()).setTrashed(true); } catch (_) {}
     }
@@ -21,6 +29,9 @@ function ensureResumeDocument_(props) {
   } finally { lock.releaseLock(); }
 }
 
+/**
+ * 首次建立文件用的完整範例；更新程式不會把它重貼進既有文件。
+ */
 function starterResumeText_() {
   return [
     "陳沐言｜AI 自動化工程師",

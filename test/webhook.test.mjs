@@ -100,7 +100,7 @@ test('one invalid event does not suppress other events in a batch', () => {
   const invalid = { ...event(), webhookEventId: 123, replyToken: 'invalid' };
   gas.doPost(input([invalid, event('使用說明', 'event-2'), event('隱私', 'event-3')]));
   assert.equal(state.calls.length, 2);
-  assert.match(state.calls[0].body.messages[0].text, /每題獨立/);
+  assert.match(state.calls[0].body.messages[0].text, /短期記憶/);
   assert.match(state.calls[1].body.messages[0].text, /資料使用方式/);
 });
 
@@ -123,10 +123,10 @@ test('repeated RAG questions ignore legacy daily and hourly settings and exhaust
   for (let i = 0; i < 105; i++) gas.doPost(input([event('專案作品', 'question-' + i)]));
   const replies = state.calls.filter(call => call.url.endsWith('/message/reply'));
   assert.equal(replies.length, 105);
-  assert(replies.every(call => call.body.messages[0].text.includes('資料來源：專案作品')));
+  assert(replies.every(call => call.body.messages.some(m => m.text?.includes('資料來源：專案作品'))));
   assert.equal(state.calls.filter(call => call.url.endsWith(':generateContent')).length, 105);
   assert.equal(state.properties.get('AI_BUDGET'), legacyBudget);
-  assert.equal(state.cache.size, 1);
+  assert.equal(state.cache.size, 2);
   assert.equal(state.cache.get(cacheKey), '99999');
   state.properties.set('DAILY_AI_LIMIT', 'obsolete-value');
   state.properties.set('USER_HOURLY_LIMIT', 'obsolete-value');
@@ -161,7 +161,7 @@ test('loading HTTP or network failure does not prevent the RAG answer or expose 
     gas.doPost(input([event('專業技能')]));
     const replies = state.calls.filter(call => call.url.endsWith('/message/reply'));
     assert.equal(replies.length, 1);
-    assert.match(replies[0].body.messages[0].text, /資料來源/);
+    assert.match(replies[0].body.messages.map(m => m.text || '').join('\n'), /資料來源/);
     assert(state.logs.some(log => log.includes(failure === 'network' ? 'LINE_LOADING_FAILED' : 'LINE_LOADING_HTTP_403')));
     assert(!state.logs.some(log => log.includes('sensitive-')));
   }

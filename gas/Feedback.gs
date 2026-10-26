@@ -1,4 +1,12 @@
-/** Owner-maintained questions, kept outside the public knowledge base. */
+/**
+ * 【待補充問題：記錄在原文件，但不當成履歷事實】
+ * 只在確定「找不到足夠履歷證據」時記錄；API 錯誤不記成資料缺漏。
+ * 以問題文字合併次數、保留主人註記；不附上 LINE 使用者識別碼。
+ */
+
+/**
+ * 產生待補充區說明，提醒主人把可公開答案補回履歷正文。
+ */
 function feedbackSectionText_() {
   return '\n[[UNANSWERED_QUESTIONS]]\n待補充問題\n' +
     '機器人無法從履歷取得足夠答案時，會在此記錄問題、原因、最近提問時間與次數。檢索未命中不代表履歷一定缺漏，請先核對現有內容。\n' +
@@ -6,11 +14,17 @@ function feedbackSectionText_() {
     '[[/UNANSWERED_QUESTIONS]]\n';
 }
 
+/**
+ * 整理訪客問題為一般文字，避免問題中的標記被當成控制指令。
+ */
 function feedbackQuestion_(question) {
-  // Keep visitor text on one line, so embedded marker strings cannot become delimiters.
+  // 訪客問題保持單行，內含的標記字串才不會成為文件控制標記。
   return String(question || '').replace(/[\s\u0000-\u001f\u007f]+/g, ' ').trim();
 }
 
+/**
+ * 找到或建立待補充問題表格；保留既有列與主人維護狀態。
+ */
 function feedbackTable_(body) {
   var headers = ['使用者問題', '記錄原因', '最近提問／次數', '維護狀態'];
   var start = -1, end = -1, table = null;
@@ -44,6 +58,9 @@ function feedbackTable_(body) {
   return table || body.insertTable(end, [headers]);
 }
 
+/**
+ * 以鎖避免同時寫入；同題累計次數，未知錯誤不暴露原文。
+ */
 function recordUnansweredQuestion_(question, reason, cfg) {
   var labels = {
     NO_RELEVANT_CHUNKS: '檢索未找到符合門檻的履歷片段，請確認內容或檢索結果。',
@@ -60,7 +77,7 @@ function recordUnansweredQuestion_(question, reason, cfg) {
     var tab = cfg.tabIds.indexOf('*') >= 0 ? doc.getTabs()[0] : doc.getTab(cfg.tabIds[0]);
     if (!tab) throw new Error('DOC_TAB_NOT_FOUND');
     var body = tab.asDocumentTab().getBody();
-    // Refuse to append after malformed/unclosed public or private markers.
+    // 公開／私人標記未成對時拒絕寫入，避免破壞文件的公開範圍。
     extractPublic_(body.getText());
     var table = feedbackTable_(body), row = null, count = 1;
     for (var i = 1; i < table.getNumRows(); i++) {
@@ -80,7 +97,7 @@ function recordUnansweredQuestion_(question, reason, cfg) {
     row.getCell(1).setText(labels[reason]);
     row.getCell(2).setText(Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM-dd HH:mm:ss') +
       '（台北時間）\n次數：' + count);
-    // Preserve the owner's status/notes and save before claiming the question was recorded.
+    // 保留主人維護狀態；實際存檔成功後才能向訪客表示已記錄。
     doc.saveAndClose();
     safeLog_('FEEDBACK_RECORDED');
     return true;
