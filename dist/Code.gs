@@ -2126,22 +2126,37 @@ function contactIntent_(text) {
 
 function contactButton_(label, data) { return { type: 'button', height: 'sm', style: 'secondary', action: { type: 'postback', label: label, data: data, displayText: label } }; }
 
+/** 以原生 Flex 幾何圖形畫小型複製圖示，不需外部圖片網址。 */
+function copyEmailIcon_(email) {
+  function sheet(left, top, fill) { return { type: 'box', layout: 'vertical', position: 'absolute',
+    width: '12px', height: '14px', offsetStart: left + 'px', offsetTop: top + 'px', cornerRadius: '2px',
+    borderWidth: '1px', borderColor: '#23735B', backgroundColor: fill, contents: [] }; }
+  return { type: 'box', layout: 'vertical', width: '32px', height: '32px', flex: 0, cornerRadius: '8px',
+    backgroundColor: '#E8EFE9', action: { type: 'clipboard', label: '複製 Email', clipboardText: email },
+    contents: [sheet(11, 6, '#E8EFE9'), sheet(7, 10, '#FAFBF8')] };
+}
+
 /** 首頁、文字意圖與「聯繫本人」按鈕共用這張卡片。 */
 function contactMessage_(cfg, prepared) {
   var contact;
   try { contact = publicContact_(cfg, prepared); } catch (_) { contact = { email: '', available: false, unavailable: true }; }
   var contents = [{ type: 'text', text: '聯繫本人', size: 'lg', weight: 'bold', color: '#143D35' },
     { type: 'text', text: '面試邀約、職缺介紹或合作洽詢，都可以從這裡開始。', size: 'sm', wrap: true, color: '#53635E', margin: 'md' }];
-  if (contact.email) contents.push({ type: 'text', text: contact.email, size: 'sm', wrap: true, margin: 'md' });
+  if (contact.email) {
+    var address = { type: 'text', text: contact.email, size: 'sm', wrap: true, flex: 1, color: '#23735B' };
+    if (contact.available) address.action = { type: 'postback', label: '取得 Email', data: 'contact:email', displayText: '取得 Email' };
+    contents.push({ type: 'box', layout: 'horizontal', alignItems: 'center', spacing: 'sm', margin: 'md',
+      contents: contact.available ? [address, copyEmailIcon_(contact.email)] : [address] });
+  }
   var buttons = [];
   if (contact.available) {
-    contents.push({ type: 'text', text: '自行寄信：取得純文字 Email，複製到慣用的郵件服務撰寫並寄出。', size: 'xs', wrap: true, color: '#687770', margin: 'md' });
-    buttons.push({ type: 'button', height: 'sm', style: 'primary', color: '#23735B', action: {
-      type: 'postback', label: '取得 Email', data: 'contact:email', displayText: '取得 Email' } });
+    contents.push({ type: 'text', text: '點右側圖示複製信箱；也可點信箱取得純文字，再自行寄信。', size: 'xs', wrap: true, color: '#687770', margin: 'md' });
   }
   else contents.push({ type: 'text', text: contact.unavailable ? '目前無法讀取聯絡資料，可先留下邀約。' : '目前尚未提供可收信的 Email，可先留下邀約。', size: 'xs', wrap: true, color: '#687770', margin: 'md' });
   contents.push({ type: 'text', text: 'LINE 邀約：在這裡填寫，確認送出後由機器人通知本人。', size: 'xs', wrap: true, color: '#687770', margin: 'md' });
-  buttons.push(contactButton_('在 LINE 留邀約', 'invite:start'), contactButton_('回首頁', 'nav:home'));
+  var invitationButton = contactButton_('在 LINE 留邀約', 'invite:start');
+  invitationButton.style = 'primary'; invitationButton.color = '#23735B';
+  buttons.push(invitationButton, contactButton_('回首頁', 'nav:home'));
   return { type: 'flex', altText: '聯繫本人｜Email 與留下邀約', quickReply: quickReply_(), contents: { type: 'bubble', size: 'kilo',
     body: { type: 'box', layout: 'vertical', paddingAll: '20px', contents: contents },
     footer: { type: 'box', layout: 'vertical', spacing: 'sm', contents: buttons } } };

@@ -171,3 +171,13 @@ test('owner notification configuration and test push require owner capability an
  const before=f.state.calls.length;f.gas.testContactFlow(token);assert(!f.state.calls.slice(before).some(c=>c.url.endsWith('/message/push')));
  assert.equal(f.gas.setOwnerLineNotification(token,'').configured,false);
 });
+
+test('contact email uses a compact adjacent copy icon and preserves plain-text fallback, with only invite and home footer buttons',()=>{
+ const f=setup(),card=f.send('聯繫本人')[0],row=card.contents.body.contents.find(c=>c.layout==='horizontal');
+ assert.equal(row.contents[0].text,'resume@company.tw');assert.equal(row.contents[0].action.data,'contact:email');
+ const icon=row.contents[1];assert.equal(icon.width,'32px');assert.equal(icon.height,'32px');assert.equal(icon.action.type,'clipboard');assert.equal(icon.action.clipboardText,'resume@company.tw');
+ assert.deepEqual(card.contents.footer.contents.map(b=>b.action.label),['在 LINE 留邀約','回首頁']);assert.equal(card.contents.footer.contents[0].style,'primary');
+ assert.equal(f.send('contact:email','user-1',true)[0].text,'resume@company.tw');
+ f.state.text=publicDoc.replace('resume@company.tw','sample@example.invalid');const unavailable=f.send('聯繫本人')[0];
+ assert(!JSON.stringify(unavailable).includes('"clipboard"'));assert(!JSON.stringify(unavailable).includes('"contact:email"'));
+});
