@@ -8,7 +8,8 @@
  * 一般網址顯示版本；?view=review 只提供管理頁外殼，不直接夾帶履歷。
  */
 function doGet(e) {
-  if (e && e.parameter && e.parameter.view === 'review') return HtmlService.createHtmlOutput(reviewHtml_());
+  if (e && e.parameter && ['review', 'invitations'].indexOf(e.parameter.view) >= 0) return HtmlService.createHtmlOutput(
+    e.parameter.view === 'invitations' ? reviewHtml_().replace('<body>', '<body data-start="invitations">') : reviewHtml_());
   return webhookOutput_('LINE 履歷助理已部署。版本 ' + appVersion_() +
     '<!--RESUMERAGBOT_VERSION=' + appVersion_() + '-->');
 }
@@ -129,15 +130,20 @@ function handleEvent_(event, cfg) {
       } catch (_) { MESSAGE_TOPICS_ = []; }
     }
     if (!cfg.enabled) messages = [textMessage_('履歷助理目前暫停服務，請稍後再試。')];
+    else if ((messages = handleContact_(event, text, cfg, prepared))) { /* 聯繫與邀約不經 RAG。 */ }
     else if (/^(清除對話|重新開始|reset)$/i.test(text)) {
       clearConversation_(event.source.userId);
       messages = [textMessage_('短期對話記憶已清除，現在可以開始新的問題。')];
     }
-    else if (event.type === 'follow' || /^(選單|首頁|menu|開始)$/i.test(text)) {
-      messages = [welcomeMessage_(cfg), stickerMessage_('greet')].filter(Boolean);
+    else if (event.type === 'follow' || /^(選單|首頁|回首頁|履歷首頁|menu|home|開始|nav:home)$/i.test(text)) {
+      messages = [welcomeMessage_(cfg, prepared)];
     }
     else if (/^(使用說明|說明|help)$/i.test(text)) messages = [textMessage_(helpText_())];
     else if (/^(隱私|privacy)$/i.test(text)) messages = [textMessage_(privacyText_())];
+    else if (event.type === 'postback' && text.indexOf('evidence:') === 0) {
+      // 舊訊息的按鈕無法從 LINE 歷史中移除；僅告知停用，不讀依據或啟動 RAG。
+      messages = [textMessage_('「展開答案依據」功能已取消。')];
+    }
     else if (!text) messages = [textMessage_('請輸入文字問題，或點選下方的履歷主題。')];
     else if (text.length > 800) messages = [textMessage_('請將問題縮短至 800 字以內；你也可以分開詢問不同的經歷或專案。')];
     else {

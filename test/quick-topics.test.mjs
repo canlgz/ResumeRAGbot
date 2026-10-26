@@ -5,6 +5,71 @@ import { createGas,event } from './harness.mjs';
 const index=f=>f.gas.loadIndex_(f.gas.config_());
 const classifications=f=>f.state.calls.filter(c=>c.body?.generationConfig?.responseSchema?.properties?.topics);
 
+test('the two essential entries are always visible and the homepage uses their exact same order',()=>{
+  const {gas,state}=createGas();gas.handleEvent_(event('選單','no-index'),gas.config_());
+  const welcome=state.calls.find(c=>c.url.endsWith('/message/reply')).body.messages[0];
+  assert.deepEqual(welcome.quickReply.items.map(i=>i.action.label),['我是誰','快速一覽']);
+  assert.deepEqual(welcome.contents.contents[2].body.contents.slice(2).flatMap(row=>row.contents.map(b=>b.action.label)),['我是誰','快速一覽']);
+});
+
+test('intro and overview each reset work memory but use different source and answer-format scopes',()=>{
+  const f=portfolioFixture(),idx=index(f),core=f.gas.menuTopics_(idx).slice(0,2),work=idx.imageSources[0].imageKey;
+  const sources=[];
+  for(const [i,topic] of core.entries()){
+    f.gas.saveConversation_('user-1',idx.fingerprint,{question:'這張配色',focus:work},[work],Date.now());
+    const before=f.state.calls.length;
+    f.gas.handleEvent_({...event('','core-'+i),type:'postback',postback:{data:'topic:'+topic.id}},f.gas.config_());
+    const calls=f.state.calls.slice(before),generation=calls.find(c=>c.url.endsWith(':generateContent'));
+    const payload=JSON.parse(generation.body.contents[0].parts[0].text);sources.push(payload.evidence.map(e=>e.id));
+    assert.equal(payload.conversation.answerMode,topic.kind);assert.equal(payload.conversation.previousQuestion,'');
+    assert.deepEqual([...payload.conversation.excludedTopics],[]);
+    assert.equal(calls.filter(c=>c.url.endsWith(':embedContent')).length,1);
+    assert.equal(calls.filter(c=>c.url.endsWith(':generateContent')).length,1);
+    assert(calls.find(c=>c.url.endsWith('/message/reply')).body.messages.some(m=>m.text?.startsWith('資料來源：')));
+  }
+  assert(sources[0].every(id=>idx.quickTopics.profileChunkIds.includes(id)));
+  for(const topic of idx.quickTopics.topics)assert(sources[1].some(id=>topic.chunkIds.includes(id)),'overview should include each adaptive area');
+  assert(sources[1].some(id=>idx.quickTopics.profileChunkIds.includes(id)));
+  assert.equal(f.state.documentWrites,0);
+});
+
+test('core IDs remain usable after resume updates and punctuation in the typed intro label is accepted',()=>{
+  const f=portfolioFixture(),before=f.gas.menuTopics_(index(f)).slice(0,2).map(t=>t.id);
+  f.nodes.splice(9,0,paragraph('新增加的經歷。'));f.gas.syncKnowledgeBase();
+  assert.deepEqual([...f.gas.menuTopics_(index(f)).slice(0,2).map(t=>t.id)],[...before]);
+  f.gas.handleEvent_(event('我是誰？','intro-question'),f.gas.config_());
+  const call=f.state.calls.filter(c=>c.url.endsWith(':generateContent')&&!c.body.generationConfig.responseSchema.properties.topics).at(-1);
+  assert.equal(JSON.parse(call.body.contents[0].parts[0].text).conversation.answerMode,'intro');
+});
+
+test('a follow-up after an essential entry keeps its subject but does not remain trapped in intro formatting',()=>{
+  const f=portfolioFixture();f.gas.handleEvent_(event('我是誰','about'),f.gas.config_());
+  const memory=f.gas.readConversation_('user-1',index(f).fingerprint);assert.equal(memory.lastQuestion,'我是誰');
+  f.gas.handleEvent_(event('用什麼技術','about-followup'),f.gas.config_());
+  const call=f.state.calls.filter(c=>c.url.endsWith(':generateContent')&&!c.body.generationConfig.responseSchema.properties.topics).at(-1);
+  const payload=JSON.parse(call.body.contents[0].parts[0].text);
+  assert.equal(payload.conversation.previousQuestion,'我是誰');assert.equal(payload.conversation.answerMode,null);
+  assert.equal(payload.conversation.topicScope,null);
+});
+
+test('four adaptive areas plus two essentials fit the six-button limit without losing any area',()=>{
+  const {gas}=createGas();
+  const chunks=Array.from({length:5},(_,i)=>({id:'S'+i,section:'組'+i,text:'內容'+i}));
+  const groups=gas.topicGroups_(chunks),quickTopics=gas.validateQuickTopics_({profileGroupIds:['G1'],topics:groups.slice(1).map((g,i)=>({label:'特色領域'+i,scope:'範圍'+i,groupIds:[g.id]}))},groups,'fp',chunks);
+  const menu=gas.menuTopics_({chunks,quickTopics});assert.equal(menu.length,6);
+  assert.deepEqual([...menu.slice(0,2).map(t=>t.label)],['我是誰','快速一覽']);
+  assert.equal(new Set(menu.map(t=>t.label)).size,6);
+});
+
+test('legacy metadata shows both essentials while a menu-only upgrade preserves vectors and OCR',()=>{
+  const f=portfolioFixture(),file=f.state.files.get(f.state.properties.get('INDEX_FILE_ID')),old=index(f);
+  old.quickTopics.version=2;delete old.quickTopics.profileChunkIds;file.content=JSON.stringify(old);
+  assert.deepEqual([...f.gas.menuTopics_(index(f)).slice(0,2).map(t=>t.label)],['我是誰','快速一覽']);
+  const before=f.state.calls.length;f.gas.syncKnowledgeBase();
+  const calls=f.state.calls.slice(before);assert.equal(index(f).quickTopics.version,3);
+  assert(!calls.some(c=>c.url.endsWith(':batchEmbedContents')||c.body?.contents?.[0]?.parts?.some(p=>p.inlineData)));
+});
+
 test('every topic click resets prior work focus and supplies nonempty evidence from only the selected topic',()=>{
   const f=portfolioFixture(),idx=index(f),cfg=f.gas.config_(),previousWork=idx.imageSources[0].imageKey;
   const topics=idx.quickTopics.topics.slice().sort((a,b)=>Number(a.imageKeys.includes(previousWork))-Number(b.imageKeys.includes(previousWork)));
@@ -77,10 +142,11 @@ test('a genuinely missing follow-up records the actual question rather than the 
   assert.equal(recorded,'用什麼技術');
 });
 
-test('sync generates 3–6 representative topics once with exclusive complete source membership; subsequent messages reuse them',()=>{
+test('sync generates adaptive themes once; profile and adaptive sources are exclusive and the two core entries stay first',()=>{
   const f=portfolioFixture(),topics=index(f).quickTopics;
-  assert.equal(topics.status,'ready');assert.equal(topics.topics.length,3);
-  const ids=topics.topics.flatMap(t=>[...t.chunkIds]);assert.equal(new Set(ids).size,ids.length);assert.equal(ids.length,index(f).chunks.length);
+  assert.equal(topics.status,'ready');assert.equal(topics.topics.length,2);
+  const menu=f.gas.menuTopics_(index(f));assert.deepEqual([...menu.slice(0,2).map(t=>t.label)],['我是誰','快速一覽']);assert.equal(menu.length,4);
+  const ids=[...topics.profileChunkIds,...topics.topics.flatMap(t=>[...t.chunkIds])];assert.equal(new Set(ids).size,ids.length);assert.equal(ids.length,index(f).chunks.length);
   const groups=f.gas.topicGroups_(index(f).chunks);
   const work=groups.find(g=>g.section.includes('閱讀'));
   assert(work.chunkIds.length>=2);
@@ -90,23 +156,25 @@ test('sync generates 3–6 representative topics once with exclusive complete so
   for(const [i,text] of ['選單','使用說明','作品圖庫','網站介面','海報作品'].entries())f.gas.handleEvent_(event(text,'t'+i),f.gas.config_());
   assert.equal(classifications(f).length,1);
   const replies=f.state.calls.filter(c=>c.url.endsWith('/message/reply'));
-  const expected=JSON.stringify(topics.topics.map(t=>t.label));
+  const expected=JSON.stringify(menu.map(t=>t.label));
   for(const call of replies)for(const message of call.body.messages){if(message.type==='sticker')continue;
     assert.equal(JSON.stringify(message.quickReply.items.map(i=>i.action.label)),expected);
     assert(message.quickReply.items.every(i=>i.action.type==='postback'&&/^topic:/.test(i.action.data)));
   }
 });
 
-test('duplicate assignments, missing groups, overlapping labels and invalid topic counts cannot publish a menu',()=>{
+test('profile/adaptive duplicates, incomplete groups, core-label collisions and more than four features are rejected',()=>{
   const f=portfolioFixture(),idx=index(f),groups=f.gas.topicGroups_(idx.chunks);
-  const good=groups.map((g,i)=>({label:['網站設計','攝影海報','職涯背景'][i],scope:'單一範圍'+i,groupIds:[g.id]}));
-  const validate=topics=>f.gas.validateQuickTopics_({topics},groups,idx.fingerprint,idx.chunks);
+  const good=groups.slice(0,2).map((g,i)=>({label:['網站設計','攝影海報'][i],scope:'單一範圍'+i,groupIds:[g.id]}));
+  const validate=(topics,profileGroupIds=[groups[2].id])=>f.gas.validateQuickTopics_({profileGroupIds,topics},groups,idx.fingerprint,idx.chunks);
   assert.doesNotThrow(()=>validate(good));
-  assert.throws(()=>validate(good.slice(0,2)),/QUICK_TOPICS_INVALID/);
+  assert.throws(()=>validate(good.slice(0,1)),/QUICK_TOPICS_INCOMPLETE/);
   assert.throws(()=>validate([...good,...good,...good]),/QUICK_TOPICS_INVALID/);
+  assert.throws(()=>validate(good,[groups[0].id,groups[2].id]),/QUICK_TOPICS_OVERLAP/);
   assert.throws(()=>validate(good.map((t,i)=>i===1?{...t,groupIds:[groups[0].id]}:t)),/QUICK_TOPICS_OVERLAP/);
   assert.throws(()=>validate(good.map((t,i)=>i===1?{...t,label:'網站設計實作'}:t)),/QUICK_TOPICS_OVERLAP/);
   assert.throws(()=>validate(good.map((t,i)=>i===1?{...t,label:'個人介紹'}:t)),/QUICK_TOPICS_INVALID/);
+  assert.throws(()=>validate(good.map((t,i)=>i===1?{...t,label:'快速一覽'}:t)),/QUICK_TOPICS_INVALID/);
   assert.throws(()=>validate(good.map((t,i)=>i===1?{...t,groupIds:['G999']}:t)),/QUICK_TOPICS_OVERLAP/);
 });
 
@@ -120,7 +188,7 @@ test('topic buttons constrain answers and follow-ups to their assigned sources; 
   f.nodes.splice(9,0,paragraph('新增的職涯成果。'));
   f.gas.handleEvent_(event('選單','beforeSync'),f.gas.config_());
   const reply=f.state.calls.filter(c=>c.url.endsWith('/message/reply')).at(-1).body.messages[0];
-  assert(!reply.quickReply);
+  assert.deepEqual(reply.quickReply.items.map(item=>item.action.label),['我是誰','快速一覽']);
   f.gas.syncKnowledgeBase();assert.notEqual(index(f).quickTopics.revision,idx.quickTopics.revision);assert.equal(classifications(f).length,2);
   f.gas.handleEvent_({...event('','oldTopic'),type:'postback',postback:{data:'topic:'+topic.id}},f.gas.config_());
   const oldReply=f.state.calls.filter(c=>c.url.endsWith('/message/reply')).at(-1).body.messages[0];assert.match(oldReply.text,/主題已更新/);
@@ -137,10 +205,12 @@ test('upgrading a compatible old index adds only topic metadata and failed class
   assert.equal(f.state.calls.filter(c=>c.url.endsWith(':batchEmbedContents')).length,vectorCalls);
 });
 
-test('malformed classification retries once; genuinely sparse content does not invent representative keywords',()=>{
+test('malformed classification retries once and profile-only content keeps just the two basic entries',()=>{
   const f=portfolioFixture(),idx=index(f);let n=0;
-  f.state.topicResponse=call=>++n===1?candidate({topics:[]}):candidate({topics:JSON.parse(call.body.contents[0].parts[0].text).groups.map((g,i)=>({label:['介面創作','視覺設計','職涯成長'][i],scope:'範圍'+i,groupIds:[g.id]}))});
-  assert.equal(f.gas.buildQuickTopics_(idx.chunks,f.gas.config_(),idx.fingerprint).topics.length,3);assert.equal(n,2);
+  f.state.topicResponse=call=>{const groups=JSON.parse(call.body.contents[0].parts[0].text).groups;
+    return ++n===1?candidate({topics:[]}):candidate({profileGroupIds:[groups[2].id],topics:groups.slice(0,2).map((g,i)=>({label:['介面創作','視覺設計'][i],scope:'範圍'+i,groupIds:[g.id]}))});};
+  assert.equal(f.gas.buildQuickTopics_(idx.chunks,f.gas.config_(),idx.fingerprint).topics.length,2);assert.equal(n,2);
   const sparse=createGas();const result=sparse.gas.buildQuickTopics_([{id:'S1',section:'簡介',text:'只有名字。'}],sparse.gas.config_(),'f');
-  assert.equal(result.status,'insufficient_content');assert.equal(result.topics.length,0);assert.equal(sparse.state.calls.length,0);
+  assert.equal(result.status,'ready');assert.equal(result.topics.length,0);assert.equal(sparse.state.calls.length,1);
+  assert.deepEqual([...sparse.gas.menuTopics_({chunks:[{id:'S1'}],quickTopics:result}).map(t=>t.label)],['我是誰','快速一覽']);
 });

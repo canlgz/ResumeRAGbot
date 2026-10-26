@@ -9,7 +9,10 @@
  * 【主人管理】在編輯器執行，取得 20 分鐘有效的圖片校對連結。
  * 版本與時間參數避免瀏覽器沿用舊頁面；真正管理憑證只放在 # 後。
  */
-function openImageReview() {
+function openImageReview() { return openOwnerPage_('review'); }
+
+/** 依主人選擇開啟圖片管理或邀約收件匣，僅網址外殼不同，權限檢查相同。 */
+function openOwnerPage_(view) {
   requireOwner_();
   var cfg = config_(), url = publicWebAppUrl_(), token = sha256_(Utilities.getUuid() + Utilities.getUuid());
   var expiresAt = Date.now() + 20 * 60 * 1000;
@@ -22,8 +25,8 @@ function openImageReview() {
     while (keys.length >= 3) delete store.sessions[keys.shift()];
     store.sessions[sha256_(token)] = { expiresAt: expiresAt };
   });
-  var result = { url: url + '?view=review&v=' + appVersion_() + '&t=' + Date.now() + '#' + token, expiresAt: expiresAt };
-  console.log('圖片校對介面（20 分鐘有效，連結僅供本人使用）：' + result.url);
+  var result = { url: url + '?view=' + view + '&v=' + appVersion_() + '&t=' + Date.now() + '#' + token, expiresAt: expiresAt };
+  console.log('主人管理介面（20 分鐘有效，連結僅供本人使用）：' + result.url);
   return result;
 }
 
@@ -57,8 +60,8 @@ function getImageReviewData(token) {
     var entries = sourceImagesByDigest_(source);
     return { version: appVersion_(), fingerprint: source.fingerprint, reviewRevision: store.reviewRevision,
       indexReady: Boolean(index && index.fingerprint === source.fingerprint),
-      topics: index && index.fingerprint === source.fingerprint && index.quickTopics ? index.quickTopics.topics : [],
-      topicStatus: index && index.fingerprint === source.fingerprint && index.quickTopics ? index.quickTopics.status : 'needs_sync',
+      topics: index && index.fingerprint === source.fingerprint ? menuTopics_(index) : coreResumeTopics_(null),
+      topicStatus: index && index.fingerprint === source.fingerprint && index.quickTopics && index.quickTopics.version === 3 ? index.quickTopics.status : 'needs_sync',
       expiresAt: store.sessions[sha256_(token)].expiresAt,
       images: Object.keys(entries).map(function (digest) {
         var entry = entries[digest], raw = index && (index.imageTexts || {})[entry.imageKey];
@@ -181,12 +184,16 @@ function validatePortfolioCards(token) {
     setMessageTopics_(index, source);
     var entries = portfolioEntries_(index, source, cfg), message = portfolioMessage_(entries);
     if (!message) throw new Error('PORTFOLIO_NO_PUBLIC_IMAGES');
+    var home = welcomeMessage_(cfg, { index: index, source: source });
+    // 同時驗證無肖像的顯示分支；只替換測試訊息元件，不動來源或文件。
+    var homeWithoutPortrait = JSON.parse(JSON.stringify(home));
+    homeWithoutPortrait.contents.contents[0].body.contents[0] = friendlyAvatar_();
     var response = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/validate/reply', {
       method: 'post', contentType: 'application/json', headers: { Authorization: 'Bearer ' + cfg.lineToken },
-      payload: JSON.stringify({ messages: [message] }), muteHttpExceptions: true
+      payload: JSON.stringify({ messages: [message, home, homeWithoutPortrait] }), muteHttpExceptions: true
     });
     if (response.getResponseCode() !== 200) throw new Error('LINE_CARD_VALIDATION_' + response.getResponseCode());
-    return { status: 'valid', images: entries.length, message: 'LINE 已接受作品卡片格式；這項檢查沒有傳送訊息。' };
+    return { status: 'valid', images: entries.length, home: home, homeWithoutPortrait: homeWithoutPortrait, message: 'LINE 已接受首頁與作品卡片格式；這項檢查沒有傳送訊息。' };
   });
 }
 
@@ -202,7 +209,7 @@ function testTopicAnswer_(topicId, cfg) {
   if (!/^[a-f0-9]{16}$/.test(String(topicId))) throw new Error('REVIEW_INVALID_INPUT');
   var index = loadIndex_(cfg), source = readPublicSource_(cfg);
   if (!index || index.fingerprint !== source.fingerprint) throw new Error('IMAGE_PREVIEW_NEEDS_SYNC');
-  var topic = ((index.quickTopics || {}).topics || []).find(function (entry) { return entry.id === topicId; });
+  var topic = menuTopics_(index).find(function (entry) { return entry.id === topicId; });
   if (!topic) throw new Error('TOPIC_SOURCE_UNAVAILABLE');
   var images = index.imageSources || [];
   var first = images.find(function (image) { return (topic.imageKeys || []).indexOf(image.imageKey) < 0; }) || images[0];
@@ -211,8 +218,18 @@ function testTopicAnswer_(topicId, cfg) {
     if (first) saveConversation_(userId, index.fingerprint, { question: '上一件作品的配色', focus: first.imageKey }, [first.imageKey], Date.now());
     var result = answerLineConversation_('請介紹所選主題的履歷內容。', cfg, topic.label, userId,
       null, false, topicId, { index: index, source: source });
+    // 用真正產生的回覆驗證 LINE 格式，包含固定入口及適性 Quick Reply；不發送訊息。
+    var lineValidation = 'not_run';
+    if (result.answerStatus === 'answered' && valueConfigured_(cfg.lineToken, 'LINE_CHANNEL_ACCESS_TOKEN')) {
+      var response = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/validate/reply', {
+        method: 'post', contentType: 'application/json', headers: { Authorization: 'Bearer ' + cfg.lineToken },
+        payload: JSON.stringify({ messages: result.messages }), muteHttpExceptions: true
+      });
+      if (response.getResponseCode() !== 200) throw new Error('LINE_CARD_VALIDATION_' + response.getResponseCode());
+      lineValidation = 'valid';
+    }
     return { version: appVersion_(), label: topic.label, status: result.answerStatus || 'unavailable',
       messages: result.messages.filter(function (message) { return message.type === 'text'; }).map(function (message) { return message.text; }),
-      previousWorkSeeded: Boolean(first), elapsedMs: Date.now() - started };
+      lineValidation: lineValidation, previousWorkSeeded: Boolean(first), elapsedMs: Date.now() - started };
   } finally { clearConversation_(userId); }
 }

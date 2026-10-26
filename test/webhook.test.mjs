@@ -61,7 +61,7 @@ test('anonymous and other-account HtmlService callers cannot invoke management f
   for (const email of ['', 'visitor@example.test']) {
     state.activeEmail = email;
     for (const fn of ['initializeProject', 'showWebhookUrl', 'rotateWebhookToken', 'checkSetup',
-      'installHourlySync', 'removeHourlySync', 'testResumeAnswer', 'testLineConnection', 'previewImageText', 'syncKnowledgeBase', 'checkDeployment']) {
+      'installHourlySync', 'removeHourlySync', 'testResumeAnswer', 'testLineConnection', 'previewImageText', 'syncKnowledgeBase', 'checkDeployment', 'enableInvitationEmailNotifications']) {
       assert.throws(() => gas[fn](), /OWNER_ONLY/);
     }
   }
@@ -224,4 +224,24 @@ test('disabled bot and long questions avoid all AI calls', () => {
   gas.handleEvent_(event('a'.repeat(801), 'event-2'), gas.config_());
   assert.match(state.calls[1].body.messages[0].text, /800/);
   assert.equal(state.calls.filter(c => c.url.includes('generativelanguage')).length, 0);
+});
+
+test('new answers use plain source text and never create an expand-evidence button or cache entry',()=>{
+  const {gas,state}=readyRag();
+  gas.handleEvent_(event('專案作品','normal-after-removal'),gas.config_());
+  const messages=state.calls.filter(c=>c.url.endsWith('/message/reply')).at(-1).body.messages;
+  assert.equal(messages[1].type,'text');assert.match(messages[1].text,/^資料來源：/);
+  assert(!JSON.stringify(messages).includes('evidence:'));
+  assert(![...state.cache.keys()].some(key=>key.startsWith('answer-evidence:')));
+});
+
+test('historic evidence buttons reply disabled without reading cached passages, calling AI or recording missing facts',()=>{
+  const {gas,state}=readyRag();
+  const token='b'.repeat(64);state.cache.set('answer-evidence:'+gas.sha256_(token),'old-cache-remains-inaccessible');
+  gas.handleEvent_({...event('','old-button'),type:'postback',postback:{data:'evidence:'+token}},gas.config_());
+  assert.equal(state.calls.length,1);assert(state.calls[0].url.endsWith('/message/reply'));
+  assert.match(state.calls[0].body.messages[0].text,/功能已取消/);
+  assert(!JSON.stringify(state.calls[0].body).includes('old-cache-remains-inaccessible'));
+  assert.equal(state.documentWrites,0);
+  assert.equal(gas.loadAnswerEvidence_,undefined);
 });

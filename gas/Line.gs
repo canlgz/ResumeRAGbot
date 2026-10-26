@@ -5,11 +5,10 @@
  */
 
 /**
- * 只顯示本次已確認有效的 3–6 個代表主題；不重新呼叫分類模型。
+ * 固定兩個基本入口，加上本次有效的適性主題；不在聊天時重新分類。
  */
 function quickReply_() {
-  if (MESSAGE_TOPICS_.length < 3 || MESSAGE_TOPICS_.length > 6) return undefined;
-  return { items: MESSAGE_TOPICS_.map(function (topic) {
+  return { items: visibleMenuTopics_().map(function (topic) {
     return { type: 'action', action: { type: 'postback', label: topic.label, data: 'topic:' + topic.id, displayText: topic.label } };
   }) };
 }
@@ -40,42 +39,89 @@ function textMessage_(text) {
 }
 
 /**
- * 首頁按鈕與 Quick Reply 使用同一份履歷主題，沒有固定六類選單。
+ * 無肖像時以 LINE 原生幾何元件畫出親和人物，不使用姓名首字或生成真人照片。
+ * 圖形只存在於訊息中：不用讀外部圖片、不呼叫 AI，更不寫入 Google Doc。
  */
-function welcomeMessage_(cfg) {
-  var buttons = MESSAGE_TOPICS_;
-  return { type: 'flex', altText: cfg.name + '｜互動履歷，點選主題或直接提問', quickReply: quickReply_(),
-    contents: { type: 'bubble', size: 'mega',
-      header: { type: 'box', layout: 'vertical', backgroundColor: '#143D35', paddingAll: '24px', contents: [
-        { type: 'text', text: 'HELLO, LET’S CONNECT', size: 'xs', color: '#A9DEC8', weight: 'bold' },
-        { type: 'text', text: cfg.name.slice(0, 50), size: 'xl', color: '#FFFFFF', weight: 'bold', margin: 'md', wrap: true },
-        { type: 'text', text: cfg.tagline.slice(0, 150), size: 'sm', color: '#D4E9E2', margin: 'md', wrap: true }
-      ] },
-      body: { type: 'box', layout: 'vertical', spacing: 'md', contents: [
-        { type: 'text', text: '你想先了解哪個部分？', size: 'md', weight: 'bold', color: '#143D35', wrap: true },
-        { type: 'text', text: '我是 AI 履歷助理。可點選從這份履歷整理出的代表主題，或直接提問。輸入「作品圖庫」看作品，輸入「清除對話」重新開始。', size: 'sm', color: '#53635E', wrap: true },
-        { type: 'text', text: '提問會交由 Google AI 處理；資料不足的問題會記錄給履歷主人補充。輸入「隱私」了解詳情。', size: 'xs', color: '#687770', wrap: true }
-      ] },
-      footer: { type: 'box', layout: 'vertical', spacing: 'sm', contents: buttons.length ? buttons.map(function (topic, i) {
-        return { type: 'button', style: i === 0 ? 'primary' : 'secondary',
-          color: i === 0 ? '#23735B' : '#EEF4F0', height: 'sm', action: { type: 'postback', label: topic.label, data: 'topic:' + topic.id, displayText: topic.label } };
-      }) : [{ type: 'text', text: '你可以直接輸入問題，或輸入「作品圖庫」。', size: 'sm', wrap: true }] }
-    }
-  };
+function friendlyAvatar_() {
+  function shape(width, height, left, top, color, radius, contents) {
+    return { type: 'box', layout: 'vertical', position: 'absolute', width: width + 'px', height: height + 'px',
+      offsetStart: left + 'px', offsetTop: top + 'px', backgroundColor: color, cornerRadius: radius + 'px', contents: contents || [] };
+  }
+  return { type: 'box', layout: 'vertical', width: '80px', height: '80px', cornerRadius: '40px', backgroundColor: '#E6EFE6', contents: [
+    shape(56, 34, 12, 48, '#377E6B', 28),
+    shape(12, 16, 34, 38, '#E6B989', 6),
+    shape(34, 36, 23, 13, '#F1CCA2', 17, [
+      shape(34, 12, 0, 0, '#3D5149', 8),
+      shape(3, 3, 9, 17, '#3D5149', 2), shape(3, 3, 22, 17, '#3D5149', 2),
+      shape(12, 9, 11, 22, '#8D5944', 6), shape(14, 6, 10, 20, '#F1CCA2', 3)
+    ])
+  ] };
+}
+
+/**
+ * 首頁與 Quick Reply 沿用相同順序：我是誰、快速一覽、同步產生的適性主題。
+ */
+function welcomeMessage_(cfg, prepared) {
+  var buttons = visibleMenuTopics_(), profile = {}, portrait = null;
+  // 新舊索引不符時，不能把已從文件刪掉的個資繼續顯示在首頁。
+  if (prepared && prepared.index && prepared.source && prepared.index.fingerprint === prepared.source.fingerprint) {
+    profile = validateHomeProfile_(prepared.index.quickTopics && prepared.index.quickTopics.homeProfile, prepared.index.chunks);
+    try { portrait = portfolioEntries_(prepared.index, prepared.source, cfg, null, 'portrait')[0]; } catch (_) {}
+  }
+  var name = profile.name || cfg.name, role = profile.role || '歡迎認識我的經歷與作品';
+  function text(value, size, color, bold) {
+    return { type: 'text', text: value, size: size, color: color, weight: bold ? 'bold' : 'regular', wrap: true };
+  }
+  function action(topic) { return { type: 'postback', label: topic.label, data: 'topic:' + topic.id, displayText: topic.label }; }
+  function card(number, title, contents, footer) {
+    return { type: 'bubble', size: 'kilo', header: { type: 'box', layout: 'horizontal', paddingAll: '16px', backgroundColor: '#143D35', contents: [
+      text(title, 'xs', '#FFFFFF', true), { type: 'text', text: number + ' / 03', align: 'end', size: 'xxs', color: '#B7D8C9', flex: 0 }
+    ] }, body: { type: 'box', layout: 'vertical', paddingAll: '18px', spacing: 'md', height: '300px', backgroundColor: '#FAFBF8', contents: contents },
+      footer: { type: 'box', layout: 'vertical', paddingAll: '12px', backgroundColor: '#FAFBF8', contents: footer } };
+  }
+  var identity = [portrait ? { type: 'box', layout: 'vertical', width: '80px', height: '80px', cornerRadius: '40px', alignItems: 'center', contents: [
+    { type: 'image', url: portrait.imageUrl, size: 'full', aspectRatio: '1:1', aspectMode: 'cover' }
+  ] } : friendlyAvatar_(), text(Array.from(name).slice(0,24).join(''), 'lg', '#143D35', true), text(role, 'xs', '#53635E', false)];
+  var contacts = profile.contacts || [];
+  identity.push({ type: 'separator', color: '#DDE6DF', margin: 'md' });
+  // 聯繫資料逐字顯示，避免把範例地址變成貌似可用的寄信按鈕。
+  (contacts.length ? contacts : ['尚未提供公開聯繫方式']).forEach(function (contact) { identity.push(text(contact, 'xxs', '#53635E', false)); });
+  var traits = [text('一起工作時的我', 'lg', '#143D35', true)];
+  (profile.traits && profile.traits.length ? profile.traits : ['可以先從經歷與作品認識我。']).forEach(function (trait, i) {
+    traits.push({ type: 'box', layout: 'horizontal', spacing: 'md', margin: 'md', contents: [
+      { type: 'text', text: '0' + (i + 1), size: 'xs', color: '#A18150', flex: 0 }, text(trait, 'sm', '#31483D', false)
+    ] });
+  });
+  var navigation = [text('從這裡開始', 'lg', '#143D35', true), text('先認識我，再探索你感興趣的領域。', 'xs', '#687770', false)];
+  // 與 Quick Reply 完全同源、同序；2 欄最多 3 列，長標籤可換行。
+  for (var i = 0; i < buttons.length; i += 2) {
+    navigation.push({ type: 'box', layout: 'horizontal', spacing: 'sm', contents: buttons.slice(i, i + 2).map(function (topic) {
+      return { type: 'box', layout: 'vertical', flex: 1, height: '55px', paddingAll: '8px', cornerRadius: '10px',
+        backgroundColor: topic.kind === 'adaptive' ? '#E8EFE9' : '#23735B', justifyContent: 'center', action: action(topic), contents: [
+          { type: 'text', text: topic.label, size: 'xs', align: 'center', color: topic.kind === 'adaptive' ? '#143D35' : '#FFFFFF', weight: 'bold', wrap: true }
+        ] };
+    }) });
+  }
+  var compactButton = function (topic) { return { type: 'button', height: 'sm', style: 'link', color: '#23735B', action: action(topic) }; };
+  return { type: 'flex', altText: Array.from(name).slice(0,50).join('') + '｜認識我・個人特質・履歷導覽', quickReply: quickReply_(), contents: { type: 'carousel', contents: [
+    card('01', 'HELLO / 認識我', identity, [contactButton_('聯繫本人', 'nav:contact')]),
+    card('02', 'ABOUT / 個人特質', traits, [compactButton(buttons[1])]),
+    card('03', 'EXPLORE / 履歷導覽', navigation, [{ type: 'button', height: 'sm', style: 'link', color: '#23735B', action: { type: 'postback', label: '回首頁', data: 'nav:home', displayText: '首頁' } }])
+  ] } };
 }
 
 /**
  * 訪客輸入「使用說明」時顯示的操作方法。
  */
 function helpText_() {
-  return '你可以直接提問，例如：\n• 請用 30 秒介紹這位求職者。\n• 有哪些工作經歷與具體成果？\n• 做過哪些與資料分析相關的專案？\n• 這份履歷有哪些符合產品經理職缺的條件？\n• 如何聯絡本人？\n\n約 10 分鐘內可接續追問同一件作品，例如「這張用了什麼配色？」；輸入「清除對話」可重新開始。短期記憶可能提早失效，屆時請補上作品名稱。回答依據公開履歷；找不到足夠資料的問題會記錄給履歷主人確認與補充。\n\n輸入「選單」回到首頁；輸入「隱私」查看資料使用方式。';
+  return '輸入「聯繫本人」「想約面試」或「想合作」，可查看 Email 或留下邀約。\n\n你可以直接提問，例如：\n• 請用 30 秒介紹這位求職者。\n• 有哪些工作經歷與具體成果？\n• 做過哪些與資料分析相關的專案？\n• 這份履歷有哪些符合產品經理職缺的條件？\n• 如何聯絡本人？\n\n約 10 分鐘內可接續追問同一件作品，例如「這張用了什麼配色？」；輸入「清除對話」可重新開始。短期記憶可能提早失效，屆時請補上作品名稱。回答依據公開履歷；找不到足夠資料的問題會記錄給履歷主人確認與補充。\n\n隨時輸入「首頁」「選單」或「回首頁」，就能重新開啟三張履歷卡；輸入「隱私」查看資料使用方式。';
 }
 
 /**
  * 向訪客說明提問、短期記憶與待補充問題的資料使用方式。
  */
 function privacyText_() {
-  return '我是 AI 履歷助理，回答可能有誤，重要資訊請向本人確認。\n\n資料使用方式：\n• 僅使用履歷擁有者標示為公開的內容。\n• LINE 訊息由 Google Apps Script 處理，問題和檢索片段會送至 Google Gemini。\n• 資料不足的問題會寫入履歷主人的 Google 文件，包含問題文字、原因、時間與次數，供本人維護；不附上 LINE 使用者識別碼。\n• 使用雜湊識別的短期記憶，暫存近期問題及作品指向約 10 分鐘，不保存完整回答；輸入「清除對話」可立即清除。LINE 與 Google 本身仍適用各自的資料政策。\n• 使用者識別碼用於處理中動畫及產生短期記憶的雜湊鍵，不保存原始識別碼。事件識別碼以雜湊形式保存，處理狀態保留約一天以避免重複回覆。\n\n請勿傳送密碼、證件、薪資機密或其他敏感資料。';
+  return '我是 AI 履歷助理，回答可能有誤，重要資訊請向本人確認。\n\n資料使用方式：\n• 邀約填寫內容不交給 AI。未確認草稿暫存約 30 分鐘，可能提早失效；確認後存於履歷主人的私有邀約收件匣，並以 Email 與已設定的 LINE 通知本人；由本人查看、處理或刪除，不作為 RAG 知識。\n• 僅使用履歷擁有者標示為公開的內容。\n• LINE 訊息由 Google Apps Script 處理，問題和檢索片段會送至 Google Gemini。\n• 資料不足的問題會寫入履歷主人的 Google 文件，包含問題文字、原因、時間與次數，供本人維護；不附上 LINE 使用者識別碼。\n• 使用雜湊識別的短期記憶，暫存近期問題及作品指向約 10 分鐘，不保存完整回答；輸入「清除對話」可立即清除。LINE 與 Google 本身仍適用各自的資料政策。\n• 使用者識別碼用於處理中動畫及產生短期記憶的雜湊鍵，不保存訪客原始識別碼；主人若設定 LINE 通知，會另存本人的 userId 作為推播收件人。事件識別碼以雜湊形式保存，處理狀態保留約一天以避免重複回覆。\n\n請勿傳送密碼、證件、薪資機密或其他敏感資料。';
 }
 
 /**

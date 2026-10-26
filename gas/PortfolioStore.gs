@@ -79,15 +79,20 @@ function updatePortfolioStore_(cfg, change) {
   var lock = LockService.getScriptLock(); lock.waitLock(5000);
   try {
     var value = loadPortfolioStore_(cfg), result = change(value);
-    var props = PropertiesService.getScriptProperties(), id = value._fileId;
-    if (id) DriveApp.getFileById(id).setContent(JSON.stringify(value));
-    else {
-      var file = DriveApp.createFile(portfolioStoreName_(cfg), JSON.stringify(value), 'application/json');
-      file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE);
-      props.setProperty('PORTFOLIO_STORE_FILE_ID', file.getId());
-    }
+    savePortfolioStore_(value, cfg);
     return result;
   } finally { lock.releaseLock(); }
+}
+
+/** 呼叫者須已取得指令碼鎖；保存私有管理資料，不把訪客內容寫進 Doc。 */
+function savePortfolioStore_(value, cfg) {
+  var props = PropertiesService.getScriptProperties(), id = value._fileId;
+  if (id) DriveApp.getFileById(id).setContent(JSON.stringify(value));
+  else {
+    var file = DriveApp.createFile(portfolioStoreName_(cfg), JSON.stringify(value), 'application/json');
+    file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE);
+    props.setProperty('PORTFOLIO_STORE_FILE_ID', file.getId());
+  }
 }
 
 /**

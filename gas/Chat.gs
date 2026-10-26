@@ -20,21 +20,28 @@ function answerLineConversation_(question, cfg, originalQuestion, userId, explic
   }
   setMessageTopics_(index, source);
   var memory = readConversation_(userId, index.fingerprint);
-  var topics = (index.quickTopics || {}).topics || [];
+  var topics = menuTopics_(index);
   var topic = topicId ? topics.find(function (entry) { return entry.id === topicId; }) :
-    !explicitKey && topics.find(function (entry) { return entry.label === question; });
+    !explicitKey && topics.find(function (entry) { return entry.label === question.replace(/[？?]$/, ''); });
   if (topicId && !topic) return { messages: [textMessage_('履歷主題已更新，請輸入「選單」使用最新主題。')] };
   // 點主題或輸入完整主題名稱，表示開始新的查詢，不能繼承上一件作品。
   // 特別注意：系統自己產生的「介紹這個主題」不是訪客對舊作品的追問。
   var explicitTopic = Boolean(topic);
-  if (explicitTopic) question = '請介紹「' + topic.label + '」相關履歷內容，挑選一至兩項已記載的經驗或成果。';
+  if (explicitTopic) question = topic.kind === 'intro' ? '我是誰？請用兩三句介紹履歷主人的姓名、專業定位與背景，不展開專案細節或成果數字。' :
+    topic.kind === 'overview' ? '快速一覽：請用四至五個短點概覽履歷主人的職涯定位、經驗、核心能力及代表成果或作品，每點一句，不展開技術細節。' :
+    '請介紹「' + topic.label + '」相關履歷內容，挑選一至兩項已記載的經驗或成果。';
   var request = conversationRequest_(question, explicitTopic ? null : memory, index, explicitKey);
   if (!topic && !explicitKey && request.previousQuestion && memory && memory.topicId) {
-    topic = topics.find(function (entry) { return entry.id === memory.topicId; });
+    var inherited = topics.find(function (entry) { return entry.id === memory.topicId; });
+    // 基本入口的簡介／摘要格式只用於按下入口當次，後續追問可自然深入。
+    if (inherited && (!inherited.kind || inherited.kind === 'adaptive')) topic = inherited;
   }
   if (topic) {
     request.topicId = topic.id; request.topicScope = topic.scope; request.selectedTitle = topic.label;
     request.isTopicOverview = explicitTopic;
+    if (explicitTopic && topic.kind && topic.kind !== 'adaptive') {
+      request.answerMode = topic.kind; request.memoryAnchor = topic.label;
+    }
     request.retrievalQuestion = '主題：' + topic.label + '\n範圍：' + topic.scope + '\n問題：' + question;
     if (explicitTopic) originalQuestion = topic.label;
   }

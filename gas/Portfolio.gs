@@ -72,11 +72,11 @@ function verifyPortfolioImage_(url) {
 /**
  * 先停用新卡片，再將副本改回私人；撤回失敗保留可重試狀態。
  */
-function withdrawPortfolioImage_(digest, cfg) {
+function withdrawPortfolioImage_(digest, cfg, reason) {
   var asset = null;
   updatePortfolioStore_(cfg, function (store) {
     asset = store.assets[digest];
-    if (asset) { asset.enabled = false; asset.state = 'revoking'; }
+    if (asset) { asset.enabled = false; asset.state = 'revoking'; asset.withdrawReason = reason || 'owner'; }
   });
   if (!asset) return;
   try {
@@ -98,7 +98,7 @@ function reconcilePortfolioAssets_(source, cfg) {
   var active = sourceImagesByDigest_(source), store = loadPortfolioStore_(cfg);
   Object.keys(store.assets).forEach(function (digest) {
     var asset = store.assets[digest];
-    if (!active[digest] && (asset.enabled || asset.state === 'revoke_failed')) withdrawPortfolioImage_(digest, cfg);
+    if (!active[digest] && (asset.enabled || asset.state === 'revoke_failed')) withdrawPortfolioImage_(digest, cfg, 'source_removed');
   });
 }
 
@@ -157,11 +157,42 @@ function publishPortfolioImage_(digest, source, cfg) {
 function portfolioTitle_(section) { return section.replace(/｜圖片 \d+（[^）]+）$/, ''); }
 
 /**
+ * 肖像可放在自然的個人介紹章節，不要求主人另外建立特定格式。
+ * 明確的肖像標題直接採用；介紹章節則須有圖片辨識的人物描述，避免拿圖表當頭像。
+ * 這只判斷用途，不從照片推測人物姓名或資歷。
+ */
+function isPortraitSource_(image, index) {
+  var title = portfolioTitle_(image.section).trim();
+  if (/^(?:個人肖像|個人照片|本人照片|大頭照|大頭貼|個人頭像|profile photo|portrait)(?:\s|$|[｜：:])/i.test(title)) return true;
+  if (!/^(?:個人介紹|自我介紹|個人簡介|個人資料|基本資料|關於我|about me|profile)$/i.test(title)) return false;
+  var description = (index.imageReviewedTexts || {})[image.imageKey] || (index.imageTexts || {})[image.imageKey] || {};
+  return /人像|人物|人臉|肖像|頭像|臉部|面部|頭肩|男子|女子|男性|女性|portrait|person|face|headshot/i.test(description.visualDescription || '');
+}
+
+/**
+ * 同步時替公開履歷中的肖像準備 LINE 預覽，只建立獨立圖片副本，不改 Doc。
+ * 主人手動撤回的分享不能被同步自動打開；因刪圖而撤回的圖片重新插入時可恢復。
+ * 預覽失敗要明確回傳狀態，但不能因此刪掉已成功建立的 RAG 索引。
+ */
+function prepareHomePortrait_(index, source, cfg) {
+  var image = (index.imageSources || []).find(function (entry) { return isPortraitSource_(entry, index); });
+  if (!image || !source.images[image.imageKey]) return { status: 'none' };
+  var digest = source.images[image.imageKey].digest, asset = loadPortfolioStore_(cfg).assets[digest];
+  if (asset && asset.enabled) return { status: 'ready' };
+  if (asset && !asset.enabled && asset.state === 'private' && asset.withdrawReason !== 'source_removed') return { status: 'private' };
+  try { publishPortfolioImage_(digest, source, cfg); return { status: 'ready' }; }
+  catch (error) { safeLog_(errorCode_(error)); return { status: 'error', error: errorCode_(error) }; }
+}
+
+/**
  * 只取目前仍公開、由本專案建立且獲主人開放的作品，最多五件。
  */
-function portfolioEntries_(index, source, cfg, selectedKeys) {
+function portfolioEntries_(index, source, cfg, selectedKeys, purpose) {
   var assets = loadPortfolioStore_(cfg).assets, seen = {}, entries = [];
   (index.imageSources || []).forEach(function (image) {
+    // 肖像只出現在首頁，不混入作品圖庫；標題由文件主人指定，不憑圖片猜測。
+    var portrait = isPortraitSource_(image, index);
+    if (purpose === 'portrait' ? !portrait : portrait) return;
     if (selectedKeys && selectedKeys.indexOf(image.imageKey) < 0) return;
     var info = source.images[image.imageKey];
     if (!info || seen[info.digest]) return;

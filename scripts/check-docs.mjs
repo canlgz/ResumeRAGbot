@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { createGas } from '../test/harness.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const files = ['README.md', ...(await readdir(path.join(root, 'docs')))
+const files = ['README.md', 'CHANGELOG.md', ...(await readdir(path.join(root, 'docs')))
   .filter(name => name.endsWith('.md') && name !== '交付狀態.md').map(name => 'docs/' + name)];
 let links = 0;
 for (const name of files) {

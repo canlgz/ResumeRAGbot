@@ -187,7 +187,7 @@ function syncKnowledgeBase_() {
     if (current && props.getProperty('INDEX_FINGERPRINT') === source.fingerprint) {
       // 步驟 2：相同內容可沿用，但必須確認實際索引檔還存在。
       if (existing && existing.fingerprint === source.fingerprint) {
-          if (!existing.quickTopics || existing.quickTopics.version !== 2 || existing.quickTopics.sourceFingerprint !== source.fingerprint) {
+          if (!existing.quickTopics || existing.quickTopics.version !== 3 || !existing.quickTopics.homeProfile || existing.quickTopics.homeProfile.version !== 1 || existing.quickTopics.sourceFingerprint !== source.fingerprint) {
             // 只補選單時，即使分類 API 失敗，也保留原本相容且可用的索引。
             preserveTopicUpgrade = true;
             var topics = buildQuickTopics_(existing.chunks, cfg, source.fingerprint);
@@ -198,7 +198,7 @@ function syncKnowledgeBase_() {
           }
           props.setProperty('LAST_SYNC_STATUS', 'UNCHANGED');
           return { status: 'unchanged', version: appVersion_(), deploymentCheck: deployment.status,
-            chunks: existing.chunks.length, images: source.imageCount };
+            chunks: existing.chunks.length, images: source.imageCount, portraitPreview: prepareHomePortrait_(existing, source, cfg) };
       }
     }
     // 步驟 3：來源真的有變，先停用舊資料，再開始圖片辨識與向量建立。
@@ -228,7 +228,7 @@ function syncKnowledgeBase_() {
       LAST_SYNC_STATUS: 'OK', LAST_SYNC_AT: index.builtAt });
     safeLog_('SYNC_OK');
     return { status: 'ok', version: appVersion_(), deploymentCheck: deployment.status,
-      chunks: index.chunks.length, images: source.imageCount, updatedAt: index.builtAt };
+      chunks: index.chunks.length, images: source.imageCount, updatedAt: index.builtAt, portraitPreview: prepareHomePortrait_(index, source, cfg) };
   } catch (error) {
     // 來源刪改、標記錯誤或權限失敗時，不讓舊答案繼續被使用。
     var keep = false;

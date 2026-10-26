@@ -87,7 +87,7 @@ test('an image-only resume becomes searchable and every returned source identifi
   assert.match(answer, /虛構資料分析師/);
   assert.match(answer, /資料來源：證照與學習｜圖片 1（圖片辨識）/);
   assert.equal(ocrCalls(state).length, callsBefore, 'query does not run OCR');
-  const outgoing = state.calls.find(call => call.url.endsWith(':generateContent') && !isOcr(call));
+  const outgoing = state.calls.find(call => call.url.endsWith(':generateContent') && !isOcr(call) && !call.body.generationConfig.responseSchema.properties.topics);
   assert.match(outgoing.body.contents[0].parts[0].text, /證照名稱：虛構資料分析師/);
 });
 
@@ -314,7 +314,7 @@ test('portfolio artwork with no visible words is searchable from visual observat
   assert.equal(preview.visualDescription, description);
   assert.match(preview.text, /畫面觀察/);
   assert.match(f.gas.answerQuestion_('側邊導覽的顏色與卡片排列？', f.gas.config_()), /青綠色/);
-  const generation = f.state.calls.find(call => call.url.endsWith(':generateContent') && !isOcr(call));
+  const generation = f.state.calls.find(call => call.url.endsWith(':generateContent') && !isOcr(call) && !call.body.generationConfig.responseSchema.properties.topics);
   assert.match(generation.body.systemInstruction.parts[0].text, /不可據此推定作者/);
   assert.match(generation.body.contents[0].parts[0].text, /三張並排/);
   f.nodes.splice(2, 0, paragraph('新增一段普通圖說。'));

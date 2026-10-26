@@ -16,11 +16,14 @@ try{
       const token='a'.repeat(64),data={version:'1.3.0',fingerprint:'fixture',indexReady:true,reviewRevision:0,expiresAt:Date.now()+1200000,
         topics:['網站介面','攝影海報','職涯背景'].map((label,i)=>({label,id:String(i+1).repeat(16)})),images:['作品 A｜閱讀網站介面','作品 B｜攝影展海報'].map((title,i)=>({digest:String(i+1).repeat(64),title,transcription:i?'城市散步':'拾光閱讀',visualDescription:i?'橘色圓形與藍色建築。':'青綠色導覽列與書籍卡片。',originalTranscription:i?'城市散步':'拾光閱讀',originalVisualDescription:'畫面觀察',sharing:'private'}))};
       window.rpcCalls=[];window.failNext='';
+      const invitations=[{id:'b'.repeat(32),createdAt:new Date().toISOString(),status:'new',fields:{company:'<img src=x onerror="window.injected=true">',message:'面試邀約測試',replyTo:'hr@example.invalid',availability:''}}];
       window.google={script:{url:{getLocation:cb=>cb({hash:token})},run:{withSuccessHandler(success){const api={withFailureHandler(failure){return new Proxy({}, {get:(_,method)=>(passed,...args)=>{window.rpcCalls.push({method,args});setTimeout(()=>{try{
         if(window.failNext){const code=window.failNext;window.failNext='';throw new Error(code);}
         if(passed!==token)throw new Error('REVIEW_SESSION_EXPIRED');
         let result;
-        if(method==='getImageReviewData')result=structuredClone(data);
+        if(method==='getInvitations')result={expiresAt:data.expiresAt,invitations:structuredClone(invitations)};
+        else if(method==='updateInvitation'){const i=invitations.findIndex(x=>x.id===args[0]);if(args[1]==='delete')invitations.splice(i,1);else invitations[i].status=args[1];result={status:'ok'};}
+        else if(method==='getImageReviewData')result=structuredClone(data);
         else if(method==='getImageReviewImage')result={dataUrl:image};
         else if(method==='saveImageReview'){const item=data.images.find(x=>x.digest===args[0]);item.transcription=args[1].transcription;item.visualDescription=args[1].visualDescription;item.reviewed=true;data.reviewRevision++;result={saved:true,synced:true};}
         else if(method==='setPortfolioImageSharing'){data.images.find(x=>x.digest===args[0]).sharing=args[1]?'public':'private';result={status:args[1]?'public':'private'};}
@@ -59,6 +62,15 @@ try{
     await first.getByRole('button',{name:'撤回公開預覽',exact:true}).click();
     await page.waitForFunction(()=>!document.getElementById('reload').disabled);
     assert.match(await first.locator('.sharing h3').textContent(),/未開放/);
+    await page.locator('#showInvitations').click();await page.waitForFunction(()=>!document.getElementById('reload').disabled);
+    assert.equal(await page.locator('#invitationList section').count(),1);assert.equal(await page.locator('#invitationList img').count(),0);
+    assert.equal(await page.evaluate(()=>window.injected),undefined);assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    await page.screenshot({path:path.join(out,'inbox-'+name+'.png'),fullPage:true});
+    await page.getByRole('button',{name:'標為已處理',exact:true}).click();await page.waitForFunction(()=>!document.getElementById('reload').disabled);
+    assert.match(await page.locator('#status').textContent(),/0 份待處理/);
+    page.once('dialog',dialog=>dialog.accept());await page.getByRole('button',{name:'刪除邀約',exact:true}).click();await page.waitForFunction(()=>!document.getElementById('reload').disabled);
+    assert.match(await page.locator('#invitationList').textContent(),/目前沒有/);
+    await page.locator('#showImages').click();await page.waitForFunction(()=>!document.getElementById('reload').disabled);
     await page.evaluate(()=>{window.failNext='REVIEW_SESSION_EXPIRED';});await page.locator('#reload').click();
     await page.waitForFunction(()=>document.querySelectorAll('article').length===0);
     assert(await page.locator('#reload').isDisabled());assert.match(await page.locator('#status').textContent(),/連結已失效/);

@@ -159,8 +159,8 @@ function checkSetup() {
       var index = loadIndex_(cfg);
       result.index = index ? (index.fingerprint === source.fingerprint ? 'ready' : 'needs_sync') : 'missing';
       result.indexBuiltWith = index && index.builtWithAppVersion || 'unknown';
-      result.quickReplies = { status: result.index === 'ready' && index.quickTopics ? index.quickTopics.status : 'needs_sync',
-        labels: result.index === 'ready' && index.quickTopics ? index.quickTopics.topics.map(function (topic) { return topic.label; }) : [] };
+      result.quickReplies = { status: result.index === 'ready' && index.quickTopics && index.quickTopics.version === 3 ? index.quickTopics.status : 'needs_sync',
+        labels: menuTopics_(result.index === 'ready' ? index : null).map(function (topic) { return topic.label; }) };
     } catch (error) {
       result.index = errorCode_(error) === 'UNEXPECTED_ERROR' ? 'INDEX_INVALID' : errorCode_(error);
     }
@@ -178,9 +178,7 @@ function checkSetup() {
   }
   if (result.publicImages) result.nextSteps.push('公開區有 ' + result.publicImages + ' 張圖片；同步後可執行 previewImageText，或在完成部署後執行 openImageReview 校對及設定作品預覽。');
   if (result.index === 'ready' && result.quickReplies.status === 'needs_sync') {
-    result.nextSteps.push('這份舊索引尚未建立代表主題；版本一致後執行 syncKnowledgeBase，會補建選單並沿用原向量。');
-  } else if (result.index === 'ready' && result.quickReplies.status === 'insufficient_content') {
-    result.nextSteps.push('目前可區分的履歷內容不足三組，暫不顯示代表主題；補上實際的不同經驗或作品後再同步，仍可直接提問。');
+    result.nextSteps.push('版本一致後執行 syncKnowledgeBase，更新為「我是誰、快速一覽」加適性特色的選單；公開內容未變時沿用原向量與圖片快取。');
   }
   var answerTest = PropertiesService.getScriptProperties().getProperty('LAST_ANSWER_TEST') || 'NOT_RUN';
   result.answerTest = answerTest;
@@ -210,7 +208,7 @@ function testQuickReplyTopics() {
   requireOwner_();
   var cfg = config_(), index = loadIndex_(cfg);
   if (!index || !index.quickTopics || index.quickTopics.status !== 'ready') throw new Error('IMAGE_PREVIEW_NEEDS_SYNC');
-  var results = index.quickTopics.topics.map(function (topic) { return testTopicAnswer_(topic.id, cfg); });
+  var results = menuTopics_(index).map(function (topic) { return testTopicAnswer_(topic.id, cfg); });
   var result = { version: appVersion_(), status: results.every(function (entry) { return entry.status === 'answered'; }) ? 'ready' : 'needs_review', results: results };
   console.log(JSON.stringify(result));
   return result;

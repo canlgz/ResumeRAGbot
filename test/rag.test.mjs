@@ -98,15 +98,15 @@ test('index lifecycle embeds only public facts, reuses unchanged index, and revo
     embeddings: call.body.requests.map(() => ({ values: unitVector() }))
   } }) });
   assert.equal(gas.syncKnowledgeBase().status, 'ok');
-  assert.equal(state.calls.length, 1);
+  assert.equal(state.calls.length, 2);
   const outgoing = JSON.stringify(state.calls[0].body);
   assert(!outgoing.includes('私人住址') && !outgoing.includes('內部客戶'));
   assert.equal(state.calls[0].body.requests[0].taskType, 'RETRIEVAL_DOCUMENT');
   assert.equal(gas.syncKnowledgeBase().status, 'unchanged');
-  assert.equal(state.calls.length, 1);
+  assert.equal(state.calls.length, 2);
   state.text = '';
   assert.match(gas.answerQuestion_('專案', gas.config_(), 'visitor'), /等待同步/);
-  assert.equal(state.calls.length, 1);
+  assert.equal(state.calls.length, 2);
   assert.throws(() => gas.syncKnowledgeBase(), /NO_PUBLIC_CONTENT/);
   assert.equal(state.properties.get('INDEX_FILE_ID'), undefined);
   assert.equal([...state.files.values()][0].trashed, true);
@@ -148,8 +148,9 @@ test('document and query REST requests request 768 dimensions using the Google S
     assert(request.title);
     assert(!('embedContentConfig' in request));
   }
-  assert.equal(state.calls[1].body.taskType, 'RETRIEVAL_QUERY');
-  assert(!('title' in state.calls[1].body));
+  const queryCall=state.calls.find(call=>call.url.endsWith(':embedContent'));
+  assert.equal(queryCall.body.taskType, 'RETRIEVAL_QUERY');
+  assert(!('title' in queryCall.body));
 });
 
 test('invalid vectors report safe specific errors and are never silently truncated', () => {
@@ -196,7 +197,7 @@ test('complete question path retrieves, generates, validates evidence, and refus
   };
   gas.syncKnowledgeBase();
   assert.match(gas.answerQuestion_('專案成果', gas.config_(), 'visitor'), /20%/);
-  const generate = state.calls.find(call => call.url.endsWith(':generateContent'));
+  const generate = state.calls.find(call => call.url.endsWith(':generateContent') && !call.body.generationConfig.responseSchema.properties.topics);
   assert(!generate.body.contents[0].parts[0].text.includes('demo@example.test'));
   const previousResponse = state.response;
   state.response = call => {

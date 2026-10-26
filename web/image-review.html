@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
-<title>ResumeRAGbot｜作品圖片校對</title>
+<title>ResumeRAGbot｜履歷主人管理</title>
 <style>
   :root{font-family:system-ui,-apple-system,"Noto Sans TC",sans-serif;color:#193d34;background:#f4f6f2;font-size:16px}
   *{box-sizing:border-box}body{margin:0}main{max-width:1120px;margin:auto;padding:30px 22px 64px}
@@ -24,6 +24,8 @@
   .hint{font-size:13px;line-height:1.75;color:#66756b}.actions{display:flex;gap:9px;flex-wrap:wrap}.actions button{font-size:14px}details{margin-top:18px;font-size:14px}summary{cursor:pointer}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.7 system-ui,sans-serif;color:#4a5e51}
   .sharing{border-top:1px solid #e0e7df;padding-top:16px;margin-top:20px}.consent{display:flex;gap:8px;align-items:flex-start;font-size:14px;line-height:1.6;margin-bottom:12px}.consent input{margin-top:5px;width:17px;height:17px;flex-shrink:0}
   .empty{padding:35px;text-align:center;background:white;border-radius:16px;border:1px solid #d7e2d9;line-height:1.8}a{color:#236a50}#more{margin-top:20px}
+  #invitationList{overflow-wrap:anywhere}
+  body[data-view="invitations"] #sync,body[data-view="invitations"] #topicsTest,body[data-view="invitations"] #validate{display:none}
   @media(max-width:700px){main{padding:16px 13px 40px}header{padding:23px}.grid{grid-template-columns:1fr;padding:15px 19px 22px;gap:18px}.card-head{padding:20px 19px 0}.image-box img{max-height:420px}}
 </style>
 </head>
@@ -31,22 +33,27 @@
 <main>
   <header><div class="eyebrow">RESUMERAGBOT · 主人管理介面</div><h1>讓作品圖片的內容，成為可靠的履歷答案</h1>
     <p>對照原圖校對文字與畫面描述，再逐張選擇是否開放 LINE 作品預覽。校對資料另外保存，原履歷文字與圖片保持不變。</p></header>
+  <div class="toolbar"><button id="showImages">圖片校對</button><button id="showInvitations">收到的邀約</button></div>
   <div class="toolbar"><button id="reload" disabled>重新載入</button><button id="sync" class="primary" disabled>同步知識庫</button><button id="topicsTest" disabled>測試主題問答</button><button id="validate" disabled>檢查 LINE 作品卡片</button><button id="deployment" disabled>檢查部署版本</button><button id="close" disabled>結束管理</button></div>
   <div id="status" role="status" aria-live="polite">正在確認管理連結…</div>
+  <section id="inbox" hidden><h2>收到的邀約</h2><p class="hint">確認送出後，邀約會保存於此，並寄通知到 Doc 的聯絡 Email；已設定主人 userId 時，也會推播 LINE。請透過對方留下的方式回覆；系統不會自動安排面試。通知信內已有完整內容，不必每次開啟此頁。</p><div id="invitationList"></div></section>
+  <section id="imagePanel">
   <div id="summary" class="summary"></div>
   <div id="topicResults" aria-live="polite"></div>
   <div id="images"></div>
   <button id="more" hidden>顯示更多作品</button>
-  <p class="hint">此管理連結有效 20 分鐘，僅供本人使用。到期後回到 GAS 執行 openImageReview，取得新的連結。</p>
+  </section>
+  <p class="hint">此管理連結有效 20 分鐘，僅供本人使用。到期後回到 GAS 執行 openImageReview 或 openInvitations，取得新的連結。</p>
 </main>
 <script>
 (() => {
   'use strict';
   let token = '', data = null, busy = false, visible = 10, expiryTimer;
   const dirty = new Set();
+  let inboxMode = document.body.dataset.start === 'invitations';
   const $ = id => document.getElementById(id);
   const messages = {
-    REVIEW_SESSION_EXPIRED:'管理連結已失效。請回到 GAS 執行 openImageReview，開啟新的管理連結。',
+    REVIEW_SESSION_EXPIRED:'管理連結已失效。請回到 GAS 執行 openImageReview 或 openInvitations，開啟新的管理連結。',
     REVIEW_CONFLICT:'資料已在另一個管理頁更新。請先捨棄此頁未儲存的修改，再重新載入。',
     REVIEW_IMAGE_NOT_PUBLIC:'這張圖片已換圖或移出履歷公開區。請重新載入，不會套用舊圖片的設定。',
     REVIEW_INVALID_INPUT:'校對內容格式不正確，或單一欄位超過 12,000 字。請精簡後再儲存。',
@@ -83,7 +90,7 @@
   function controls() {
     document.querySelectorAll('button,textarea,input').forEach(node=>{node.disabled=busy||!token;});
     if(dirty.size){
-      ['reload','sync','topicsTest','validate','deployment','close','more'].forEach(id=>{$(id).disabled=true;});
+      ['showImages','showInvitations','reload','sync','topicsTest','validate','deployment','close','more'].forEach(id=>{$(id).disabled=true;});
       document.querySelectorAll('article').forEach(card=>{
         if(!dirty.has(card.dataset.digest))card.querySelectorAll('button,textarea,input').forEach(node=>{node.disabled=true;});
       });
@@ -98,15 +105,39 @@
     if(code==='REVIEW_SESSION_EXPIRED')expire();
   }
   function expire() {
-    token='';data=null;dirty.clear();$('images').replaceChildren();$('summary').replaceChildren();$('topicResults').replaceChildren();$('more').hidden=true;
+    token='';data=null;dirty.clear();$('images').replaceChildren();$('summary').replaceChildren();$('topicResults').replaceChildren();$('invitationList').replaceChildren();$('more').hidden=true;
     controls();status(messages.REVIEW_SESSION_EXPIRED,'error');
   }
   async function run(action) { if(busy||!token)return;busy=true;controls();try{await action();}catch(error){fail(error);}finally{busy=false;controls();} }
   async function load(note) {
+    document.body.dataset.view=inboxMode?'invitations':'images';$('inbox').hidden=!inboxMode;$('imagePanel').hidden=inboxMode;
+    if(inboxMode){await loadInvitations();return;}
     data=await rpc('getImageReviewData');dirty.clear();visible=10;render();
     clearTimeout(expiryTimer);expiryTimer=setTimeout(expire,Math.max(1,data.expiresAt-Date.now()));
     if(note)status(note,'success');else status(data.indexReady?'圖片索引已就緒。可校對內容，或開放作品預覽。':'圖片索引尚未就緒。請先同步知識庫，再核對辨識結果。');
   }
+  async function loadInvitations() {
+    const result=await rpc('getInvitations');
+    clearTimeout(expiryTimer);expiryTimer=setTimeout(expire,Math.max(1,result.expiresAt-Date.now()));
+    $('invitationList').replaceChildren(el('p',result.ownerLineConfigured?'主人 LINE 通知已設定。':'主人 LINE 通知尚未設定；Email 通知不受影響。','hint'));
+    if(!result.invitations.length)$('invitationList').append(el('div','目前沒有已確認送出的邀約。','empty'));
+    result.invitations.forEach(item=>{
+      const card=el('section',undefined,'card');card.style.padding='22px';
+      card.append(el('h3',item.fields.company),el('p',(item.status==='handled'?'已處理':'待處理')+' · '+new Date(item.createdAt).toLocaleString('zh-TW',{timeZone:'Asia/Taipei'})));
+      const mailStatus={sent:'Email 已送交 Google 寄送（不代表已讀）',no_email:'未寄通知：Doc 尚無可用的 Email',source_unavailable:'未寄通知：當時無法讀取 Doc',quota_exhausted:'未寄通知：Google 寄信額度已用完',permission_or_service_unavailable:'未寄通知：寄信授權或 Google 服務尚未就緒',not_attempted:'未寄通知：無法保存通知狀態',attempting:'通知結果待確認，避免重複寄送',delivery_unknown:'通知結果待確認：寄信服務未回傳成功',test_skipped:'測試記錄：未寄信'};
+      card.append(el('p',mailStatus[item.notification?.status]||'沒有通知寄送紀錄，請以這份邀約內容為準。','hint'));
+      const lineStatus={sent:'LINE 已接受推播（不代表已讀）',not_configured:'LINE 未設定收件人',not_attempted:'LINE 未送出：無法保存通知狀態',attempting:'LINE 通知結果待確認',delivery_unknown:'LINE 通知結果待確認',quota_or_rate_limit:'LINE 未送出：額度或速率限制',rejected:'LINE 拒絕推播，請檢查收件人與頻道設定',test_skipped:'測試記錄：未推播'};
+      if(item.lineNotification)card.append(el('p',lineStatus[item.lineNotification.status]||'LINE 通知狀態待確認','hint'));
+      [['message','職缺或合作內容'],['replyTo','回覆方式'],['availability','方便聯繫的時段']].forEach(([key,label])=>{card.append(el('h3',label),el('pre',item.fields[key]||'不限定'));});
+      const actions=el('div',undefined,'actions'),handled=el('button',item.status==='handled'?'標為待處理':'標為已處理'),remove=el('button','刪除邀約');
+      handled.onclick=()=>run(async()=>{await rpc('updateInvitation',item.id,item.status==='handled'?'new':'handled');await loadInvitations();});
+      remove.onclick=()=>run(async()=>{if(!window.confirm('確定刪除這份邀約及聯絡資料？'))return;await rpc('updateInvitation',item.id,'delete');await loadInvitations();});
+      actions.append(handled,remove);card.append(actions);$('invitationList').append(card);
+    });
+    status('邀約收件匣：'+result.invitations.filter(i=>i.status==='new').length+' 份待處理，共 '+result.invitations.length+' 份。','success');
+  }
+  $('showInvitations').onclick=()=>run(async()=>{inboxMode=true;await load();});
+  $('showImages').onclick=()=>run(async()=>{inboxMode=false;await load();});
   function render() {
     $('summary').replaceChildren(el('span','程式 '+data.version,'badge'),el('span',data.images.length+' 張公開區圖片','badge'),el('span',data.indexReady?'索引已就緒':'等待同步','badge'));
     if(data.topics&&data.topics.length)data.topics.forEach(topic=>$('summary').append(el('span',topic.label,'badge')));

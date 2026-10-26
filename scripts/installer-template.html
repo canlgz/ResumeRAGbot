@@ -134,7 +134,7 @@
 
   <section class="step">
     <span class="number">步驟 5</span><h2>同步履歷並確認 AI 能回答</h2>
-    <p>依序在函式下拉選單選擇並執行 syncKnowledgeBase → checkSetup → testResumeAnswer。這裡會使用自己的 Gemini API 配額，同時依履歷產生 3–6 個代表關鍵主題，先保留模擬資料測試即可。相同已同步內容之後沿用同一份 Quick Reply，不會每次聊天重新分類。</p>
+    <p>依序在函式下拉選單選擇並執行 syncKnowledgeBase → checkSetup → testResumeAnswer。這裡會使用自己的 Gemini API 配額，同時建立「我是誰」「快速一覽」及最多四個適性特色，先保留模擬資料測試即可。相同已同步內容之後沿用同一份 Quick Reply，不會每次聊天重新分類。</p>
     <div class="success">完成判斷：document 與 index 都是 ready，testResumeAnswer 沒有出現紅色錯誤，再執行 checkSetup 時 answerTest 為 OK 或 GEMINI_OK。OK 會顯示回答與來源，可對照文件；GEMINI_OK 代表 Gemini 已正常回應、只是這次 AI 回答沒通過來源檢查，屬偶發狀況，不是設定錯誤，直接進行下一步。出現紅色錯誤時，先照記錄的說明與 checkSetup 的「下一步」處理，不必急著部署。</div>
   </section>
 
@@ -183,18 +183,44 @@
       <li>先按「測試主題問答」，確認每一類都有答案與來源（使用 Gemini API、不傳 LINE 訊息）；再按「檢查 LINE 作品卡片」驗證格式。最後到 LINE 輸入「作品圖庫」，點「問這件作品」，接著問「這張配色呢？」。</li>
       <li>約 10 分鐘內可沿用作品指向；輸入「清除對話」重新開始。若出現額度錯誤，依訊息區分 Google API 配額與安裝問題。</li>
     </ol>
-    <p class="small">管理連結 20 分鐘有效，僅供本人使用，不轉傳或交作業。圖片可隨時撤回公開預覽，但已傳送、下載或快取的圖片無法收回。學校帳號若禁止公開分享，仍可搜尋圖片內容，作品卡片則無法開放。</p>
-    <div class="success">完成判斷：LINE 能顯示作品圖文卡片、接續回答同一件作品；Quick Reply 為 3–6 個實際履歷主題且不重複，不混入操作指令。內容未改的再次同步，主題不變。內容不足三組時不會編造選單，仍能直接提問。</div>
+    <p class="small">管理連結 20 分鐘有效，僅供本人使用，不轉傳或交作業。首頁肖像若放在公開介紹中，會在同步時準備獨立公開預覽；沒有肖像則用幾何人物，不會插圖進 Doc。圖片可隨時撤回公開預覽，但已傳送、下載或快取的圖片無法收回。學校帳號若禁止公開分享，仍可搜尋圖片內容，作品卡片則無法開放。</p>
+    <div class="success">完成判斷：LINE 能顯示作品圖文卡片、接續回答同一件作品；Quick Reply 固定「我是誰」「快速一覽」＋最多四個互斥特色，一般共 3–6 項；不足時只保留基本入口、不湊數。內容未改的再次同步，主題不變。</div>
+  </section>
+  <section class="step" id="invitation-notifications">
+    <span class="number">步驟 10 · 聯繫與邀約</span><h2>讓邀約自動通知到 Email 與本人 LINE</h2>
+    <h3>10-1 填入收件信箱，完成 Google 寄信授權</h3>
+    <ol>
+      <li>在自己的 Doc 公開區新增「公開聯絡方式」，下一行寫 <code>Email：你的實際收件信箱</code>，換成自己真正能收信的地址。不要沿用 example.invalid／example.com，也不要只放在圖片中。執行 syncKnowledgeBase 更新首頁。</li>
+      <li>回到 GAS 左側「程式碼.gs／Code.gs」，在函式選單選 <code>enableInvitationEmailNotifications</code> →「執行」。如跳出授權，選擁有 GAS 的帳號並同意寄送郵件權限。此包 manifest 已包含 <code>script.send_mail</code>，不需 Gmail 密碼或 SMTP。</li>
+      <li>到 <strong>Doc 內填寫的信箱</strong>找「【ResumeRAGbot】邀約通知啟用測試」，也檢查垃圾郵件。第一次 initializeProject 已同意全部權限時，可能不再跳授權；每次手動執行此函式都會寄一封測試信。</li>
+    </ol>
+    <h3>10-2 設定本人的 LINE userId</h3>
+    <ol>
+      <li>LINE Developers → 本機器人的 Provider → Messaging API 頻道 → <strong>Basic settings → Your user ID</strong>，複製大寫 U 開頭、共 33 字元的完整值。必須來自本頻道；不是 @官方帳號、LINE 暱稱、可搜尋朋友的 LINE ID、Channel ID 或 Token。</li>
+      <li>GAS「專案設定 → 指令碼屬性 → 編輯指令碼屬性」，新增 <code>OWNER_LINE_USER_ID</code>，值貼上剛才的 ID；已存在就修改原值。按「儲存指令碼屬性」。</li>
+      <li>用這個 ID 所屬的本人 LINE 帳號掃 bot 的 QR Code，加自己的 bot 為好友且不要封鎖。設定屬性後不用重新部署／同步，不需要另外綁定。</li>
+    </ol>
+    <div class="actions"><button data-copy="OWNER_LINE_USER_ID">複製 OWNER_LINE_USER_ID 屬性名稱</button></div>
+    <h3>10-3 完整送出一次邀約，確認真的收到</h3>
+    <ol>
+      <li>LINE 傳「首頁」→ 第一張「聯繫本人」→「留下邀約」。填公司與稱呼、職缺／合作內容、回覆方式、時段（可略過），內容標明「安裝測試」。</li>
+      <li>確認前不會保存或通知；按「確認送出」後，主人應在 Doc 信箱及本人 LINE 各收到完整邀約。再點同一張確認卡，不應重複通知。</li>
+      <li>平常直接讀通知即可；需要標記或刪除記錄時，GAS 執行 <code>openInvitations</code>，從記錄開啟完整主人管理網址（含 # 後內容，20 分鐘有效）。</li>
+    </ol>
+    <p>「撰寫 Email」開啟訪客自己的郵件程式；「留下邀約」是另一條確認後通知的流程。邀約不送 AI、不寫入 Doc。Google 寄信與 LINE Push 各用帳號自己的額度；任何通知失敗，已保存邀約仍留在私人收件匣，不會自動重寄舊邀約。</p>
+    <p class="small">未設定 OWNER_LINE_USER_ID 時只寄 Email。通知結果待確認時先檢查實際信箱／聊天室；LINE 平台接受推播不代表一定送達或已讀。詳細排錯見 <a href="docs/聯繫與邀約通知.md">聯繫與邀約通知</a>（Markdown 可用文字編輯器閱讀），或 <a href="https://github.com/canlgz/ResumeRAGbot/blob/main/docs/聯繫與邀約通知.md" target="_blank" rel="noopener">線上說明</a>。</p>
+    <div class="success">完成判斷：本人收到啟用測試信；新邀約確認後 Email 與 LINE 都有通知。以實際收件為準，不只看 Verify 或執行成功。</div>
   </section>
   <section class="step">
     <span class="number">日後更新</span><h2>更新程式時，先對齊版本再同步</h2>
     <ol>
       <li>只使用同一個安裝包的完整程式與 manifest；保留原指令碼屬性及履歷。不要把新版、舊版或單檔、分檔混貼。</li>
       <li>儲存完成後，關閉同專案其他舊編輯分頁，重新整理目前分頁。執行 checkSetup，確認 version 與安裝包相同。</li>
+      <li>先在 Doc 填好實際 Email，執行 <code>enableInvitationEmailNotifications</code> 完成新增寄信授權並收到測試信；此時不用先同步。新版 manifest 與程式必須一起貼入。</li>
       <li>到「部署 → 管理部署」編輯原部署，版本選<strong>「新版本」</strong>並部署；通常沿用原網址。</li>
       <li>執行 checkDeployment。兩個版本相同、status=ready 後，再看 checkSetup.index：ready 可直接測 LINE；只有 needs_sync 才重跑 syncKnowledgeBase。</li>
     </ol>
-    <p>從 v1.2.x 更新到本版，版本一致後執行一次 syncKnowledgeBase 補建代表主題選單。原履歷及辨識規則未變時沿用向量和圖片快取。之後看 checkSetup.quickReplies 的 status 與 labels 確認分類。</p>
+    <p>從 v1.3.x 或更早版更新到本版，版本一致後執行一次 syncKnowledgeBase 補建固定入口、適性特色、首頁與肖像預覽。原履歷及辨識規則未變時沿用向量和圖片快取。之後看 checkSetup.quickReplies 的 status 與 labels 確認分類。</p>
     <p class="small">若顯示 DEPLOYMENT_VERSION_MISMATCH，程式會保留現有索引。請先修正版本，不要一直重跑同步。若找不到 checkDeployment，代表貼入的程式仍是舊版；若檢查回報無法連線，需核對公開權限與網址，這不等於版本不同。</p>
   </section>
   <footer>

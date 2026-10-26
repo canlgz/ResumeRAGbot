@@ -68,7 +68,7 @@ function saveConversation_(userId, fingerprint, request, keys, startedAt) {
     var focus = request.focus || (works.length === 1 ? works[0] : null);
     cache.put(key, JSON.stringify({ fingerprint: fingerprint, works: works, focus: focus,
       topicId: request.topicId || null,
-      lastQuestion: Array.from(request.previousQuestion || request.question).slice(0, 800).join(''), savedAt: Date.now(),
+      lastQuestion: Array.from(request.memoryAnchor || request.previousQuestion || request.question).slice(0, 800).join(''), savedAt: Date.now(),
       expiresAt: Date.now() + 600000 }), 600);
   } finally { lock.releaseLock(); }
 }

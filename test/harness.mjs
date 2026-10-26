@@ -10,7 +10,7 @@ export function createGas(options = {}) {
   }));
   const cache = new Map(), files = new Map(), calls = [], logs = [];
   const state = { text: options.text ?? '', tabs: options.tabs, properties, cache, files, calls, logs,
-    response: options.response, topicResponse: options.topicResponse, documentWrites: 0, saves: 0, createdDocuments: [] };
+    response: options.response, topicResponse: options.topicResponse, documentWrites: 0, saves: 0, createdDocuments: [], emails: [] };
   const props = {
     getProperty: key => properties.get(key) ?? null,
     setProperty: (key, value) => { properties.set(key, value); return props; },
@@ -70,6 +70,10 @@ export function createGas(options = {}) {
     return null;
   }
   const context = vm.createContext({
+    MailApp: {
+      getRemainingDailyQuota() { if (state.mailPermissionError) throw new Error('Mail authorization required'); return state.mailQuota ?? 100; },
+      sendEmail(message) { state.mailAttemptCount = (state.mailAttemptCount || 0) + 1; if (state.mailSendError) throw new Error('Mail service uncertain'); state.emails.push(message); }
+    },
     Session: { getActiveUser: () => ({ getEmail: () => state.activeEmail ?? 'owner@example.test' }),
       getEffectiveUser: () => ({ getEmail: () => 'owner@example.test' }) },
     console: { log: value => logs.push(value) },
@@ -137,9 +141,11 @@ export function createGas(options = {}) {
         if (state.topicResponse) response = state.topicResponse(call);
         else {
           const groups = JSON.parse(call.body.contents[0].parts[0].text).groups;
-          const topics = ['職涯背景', '專業實作', '合作資訊'].map((label, i) => ({ label, scope: '測試分類 ' + (i + 1),
-            groupIds: groups.filter((_, n) => n % 3 === i).map(group => group.id) }));
-          response = { body: { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({ topics }) }] } }] } };
+          const profile=groups.filter(group=>/個人|介紹|簡介|學歷|職涯|技能|聯絡/.test(group.section));
+          const adaptive=groups.filter(group=>!profile.includes(group));
+          const topics=['介面實作','視覺設計','流程工具','資料分析'].slice(0,Math.min(4,adaptive.length)).map((label,i)=>({label,scope:'測試特色 '+(i+1),
+            groupIds:adaptive.filter((_,n)=>n%Math.min(4,adaptive.length)===i).map(group=>group.id)}));
+          response = { body: { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({profileGroupIds:profile.map(group=>group.id),topics}) }] } }] } };
         }
       } else response = state.response ? state.response(call) : { status: 200, body: {} };
       return { getResponseCode: () => response.status ?? 200,

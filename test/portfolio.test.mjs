@@ -12,7 +12,9 @@ const json=value=>JSON.parse(JSON.stringify(value));
 
 test('review shell is public but every data and mutation RPC requires an unexpired owner-issued session',()=>{
   const f=portfolioFixture();
-  assert.match(f.gas.openImageReview().url,/\?view=review&v=1\.3\.1&t=\d+#[a-f0-9]{64}$/);
+  const managementUrl=new URL(f.gas.openImageReview().url);
+  assert.equal(managementUrl.searchParams.get('v'),f.gas.appVersion_());
+  assert.match(managementUrl.hash,/^#[a-f0-9]{64}$/);
   const shell=f.gas.doGet({parameter:{view:'review'}}).text;
   for(const secret of [f.token,'test-gemini','test-line','拾光閱讀'])assert(!shell.includes(secret));
   const digest=review(f).images[0].digest;
