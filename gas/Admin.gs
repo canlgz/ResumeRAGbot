@@ -113,7 +113,8 @@ function previewImageText() {
   if (!index || index.fingerprint !== source.fingerprint) throw new Error('IMAGE_PREVIEW_NEEDS_SYNC');
   var images = (index.imageSources || []).map(function (entry) {
     var result = index.imageTexts[entry.imageKey];
-    return { section: entry.section, tabId: entry.tabId, status: result.status, text: result.text };
+    return { section: entry.section, tabId: entry.tabId, status: result.status, text: result.text,
+      transcription: result.transcription || '', visualDescription: result.visualDescription || '' };
   });
   console.log(JSON.stringify({ status: 'ready', images: images }));
   return { status: 'ready', images: images };

@@ -1,4 +1,4 @@
-/** Read public text and image hashes only. OCR runs during sync, never during a query. */
+/** Read public text and image hashes only. Image understanding runs during sync, never during a query. */
 function readPublicSource_(cfg) {
   requireValue_(cfg.docId, 'RESUME_DOC_ID');
   var doc = DocumentApp.openById(cfg.docId);
@@ -35,7 +35,7 @@ function readPublicSource_(cfg) {
         var info = readSourceImage_(image, cfg);
         if (!Object.prototype.hasOwnProperty.call(images, info.key)) images[info.key] = info;
         imageCount++;
-        var label = Array.from(section).slice(0, 70).join('') + '｜圖片 ' + imageCount + '（OCR）';
+        var label = Array.from(section).slice(0, 70).join('') + '｜圖片 ' + imageCount + '（圖片辨識）';
         chunks.push({ section: label, text: '', tabId: tab.getId(), imageKey: info.key });
       } else {
         var heading = line.match(/^#{1,6}\s+(.+)$/);

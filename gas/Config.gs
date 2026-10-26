@@ -27,7 +27,7 @@ function config_() {
   };
 }
 
-function appVersion_() { return '1.2.0'; }
+function appVersion_() { return '1.2.1'; }
 
 function resumeDocumentId_(value) {
   var match = String(value).match(/^https:\/\/docs\.google\.com\/document\/d\/([A-Za-z0-9_-]+)(?:[\/?#]|$)/);
