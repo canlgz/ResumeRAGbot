@@ -31,9 +31,10 @@
 <main>
   <header><div class="eyebrow">RESUMERAGBOT · 主人管理介面</div><h1>讓作品圖片的內容，成為可靠的履歷答案</h1>
     <p>對照原圖校對文字與畫面描述，再逐張選擇是否開放 LINE 作品預覽。校對資料另外保存，原履歷文字與圖片保持不變。</p></header>
-  <div class="toolbar"><button id="reload" disabled>重新載入</button><button id="sync" class="primary" disabled>同步知識庫</button><button id="validate" disabled>檢查 LINE 作品卡片</button><button id="deployment" disabled>檢查部署版本</button><button id="close" disabled>結束管理</button></div>
+  <div class="toolbar"><button id="reload" disabled>重新載入</button><button id="sync" class="primary" disabled>同步知識庫</button><button id="topicsTest" disabled>測試主題問答</button><button id="validate" disabled>檢查 LINE 作品卡片</button><button id="deployment" disabled>檢查部署版本</button><button id="close" disabled>結束管理</button></div>
   <div id="status" role="status" aria-live="polite">正在確認管理連結…</div>
   <div id="summary" class="summary"></div>
+  <div id="topicResults" aria-live="polite"></div>
   <div id="images"></div>
   <button id="more" hidden>顯示更多作品</button>
   <p class="hint">此管理連結有效 20 分鐘，僅供本人使用。到期後回到 GAS 執行 openImageReview，取得新的連結。</p>
@@ -62,6 +63,7 @@
     PORTFOLIO_STORE_UNAVAILABLE:'無法讀取作品管理資料，請確認 Drive 中的管理檔未被刪除。',
     PORTFOLIO_NO_PUBLIC_IMAGES:'請先開放至少一張作品預覽，再檢查 LINE 卡片。',
     IMAGE_PREVIEW_NEEDS_SYNC:'圖片索引尚未就緒，請先按「同步知識庫」。',
+    TOPIC_SOURCE_UNAVAILABLE:'主題與來源對應暫時異常，請核對部署及索引。這不代表履歷缺資料。',
     MISSING_LINE_CHANNEL_ACCESS_TOKEN:'請先在 GAS 填入自己的 LINE Channel access token，再檢查卡片。',
     LINE_CARD_VALIDATION_400:'LINE 尚未接受作品卡片格式，請檢查公開圖片後重試，或將錯誤回報給老師。',
     LINE_CARD_VALIDATION_401:'LINE Token 驗證失敗，請檢查自己的 Channel access token。',
@@ -81,7 +83,7 @@
   function controls() {
     document.querySelectorAll('button,textarea,input').forEach(node=>{node.disabled=busy||!token;});
     if(dirty.size){
-      ['reload','sync','validate','deployment','close','more'].forEach(id=>{$(id).disabled=true;});
+      ['reload','sync','topicsTest','validate','deployment','close','more'].forEach(id=>{$(id).disabled=true;});
       document.querySelectorAll('article').forEach(card=>{
         if(!dirty.has(card.dataset.digest))card.querySelectorAll('button,textarea,input').forEach(node=>{node.disabled=true;});
       });
@@ -96,7 +98,7 @@
     if(code==='REVIEW_SESSION_EXPIRED')expire();
   }
   function expire() {
-    token='';data=null;dirty.clear();$('images').replaceChildren();$('summary').replaceChildren();$('more').hidden=true;
+    token='';data=null;dirty.clear();$('images').replaceChildren();$('summary').replaceChildren();$('topicResults').replaceChildren();$('more').hidden=true;
     controls();status(messages.REVIEW_SESSION_EXPIRED,'error');
   }
   async function run(action) { if(busy||!token)return;busy=true;controls();try{await action();}catch(error){fail(error);}finally{busy=false;controls();} }
@@ -145,6 +147,18 @@
   $('reload').addEventListener('click',()=>run(()=>load()));
   $('sync').addEventListener('click',()=>run(async()=>{status('正在同步知識庫，請稍候…');const result=await rpc('syncImageReview');if(result.status==='already_running')throw new Error('REVIEW_SYNC_BUSY');await load('同步完成，可以回到 LINE 測試。');}));
   $('validate').addEventListener('click',()=>run(async()=>{const result=await rpc('validatePortfolioCards');status(result.message,'success');}));
+  $('topicsTest').addEventListener('click',()=>run(async()=>{
+    if(!data||!data.indexReady||!data.topics||!data.topics.length){status('請先同步建立代表主題，再執行問答測試。','error');return;}
+    $('topicResults').replaceChildren();let passed=0;
+    for(let i=0;i<data.topics.length;i++){
+      status('正在實測主題 '+(i+1)+' / '+data.topics.length+'：'+data.topics[i].label+'。此測試使用 Gemini API，不傳 LINE 訊息。');
+      const result=await rpc('testImageReviewTopic',data.topics[i].id),box=el('section',undefined,'card');box.style.padding='20px';
+      box.append(el('h2',result.label+' · '+(result.status==='answered'?'通過':'尚未通過')));
+      result.messages.forEach(text=>box.append(el('pre',text)));$('topicResults').append(box);
+      if(result.status==='answered')passed++;
+    }
+    status('主題問答實測完成：'+passed+' / '+data.topics.length+' 通過。未傳送 LINE 訊息。',passed===data.topics.length?'success':'error');
+  }));
   $('deployment').addEventListener('click',()=>run(async()=>{const result=await rpc('checkImageReviewDeployment');status(result.message,result.status==='ready'?'success':'error');}));
   $('close').addEventListener('click',()=>run(async()=>{await rpc('closeImageReview');expire();status('管理連結已結束。需要時可回到 GAS 取得新的連結。');}));
   $('more').addEventListener('click',()=>{visible+=10;render();controls();});

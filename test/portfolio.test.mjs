@@ -12,14 +12,14 @@ const json=value=>JSON.parse(JSON.stringify(value));
 
 test('review shell is public but every data and mutation RPC requires an unexpired owner-issued session',()=>{
   const f=portfolioFixture();
-  assert.match(f.gas.openImageReview().url,/\?view=review&v=1\.3\.0&t=\d+#[a-f0-9]{64}$/);
+  assert.match(f.gas.openImageReview().url,/\?view=review&v=1\.3\.1&t=\d+#[a-f0-9]{64}$/);
   const shell=f.gas.doGet({parameter:{view:'review'}}).text;
   for(const secret of [f.token,'test-gemini','test-line','拾光閱讀'])assert(!shell.includes(secret));
   const digest=review(f).images[0].digest;
   const operations=token=>[
     ()=>f.gas.getImageReviewData(token),()=>f.gas.getImageReviewImage(token,digest),
     ()=>f.gas.saveImageReview(token,digest,{reset:true},0),()=>f.gas.setPortfolioImageSharing(token,digest,true),
-    ()=>f.gas.syncImageReview(token),()=>f.gas.validatePortfolioCards(token),()=>f.gas.checkImageReviewDeployment(token),()=>f.gas.closeImageReview(token)
+    ()=>f.gas.testImageReviewTopic(token,'a'.repeat(16)),()=>f.gas.syncImageReview(token),()=>f.gas.validatePortfolioCards(token),()=>f.gas.checkImageReviewDeployment(token),()=>f.gas.closeImageReview(token)
   ];
   for(const token of [undefined,'','b'.repeat(64)])for(const operation of operations(token))assert.throws(operation,/REVIEW_SESSION_EXPIRED/);
   const data=review(f);assert.equal(data.images.length,2);assert.equal(f.privatePicture.reads,0);

@@ -189,3 +189,30 @@ function validatePortfolioCards(token) {
     return { status: 'valid', images: entries.length, message: 'LINE 已接受作品卡片格式；這項檢查沒有傳送訊息。' };
   });
 }
+
+/**
+ * 在管理頁實測一個主題，故意先放入另一作品的記憶，驗證切換不會串錯範圍。
+ * 共用真正的 LINE 問答流程及 Gemini API，但不傳 LINE 訊息，不寫訪客記憶。
+ */
+function testImageReviewTopic(token, topicId) {
+  return reviewRpc_(token, function (cfg) { return testTopicAnswer_(topicId, cfg); });
+}
+
+function testTopicAnswer_(topicId, cfg) {
+  if (!/^[a-f0-9]{16}$/.test(String(topicId))) throw new Error('REVIEW_INVALID_INPUT');
+  var index = loadIndex_(cfg), source = readPublicSource_(cfg);
+  if (!index || index.fingerprint !== source.fingerprint) throw new Error('IMAGE_PREVIEW_NEEDS_SYNC');
+  var topic = ((index.quickTopics || {}).topics || []).find(function (entry) { return entry.id === topicId; });
+  if (!topic) throw new Error('TOPIC_SOURCE_UNAVAILABLE');
+  var images = index.imageSources || [];
+  var first = images.find(function (image) { return (topic.imageKeys || []).indexOf(image.imageKey) < 0; }) || images[0];
+  var userId = 'owner-topic-test:' + Utilities.getUuid(), started = Date.now();
+  try {
+    if (first) saveConversation_(userId, index.fingerprint, { question: '上一件作品的配色', focus: first.imageKey }, [first.imageKey], Date.now());
+    var result = answerLineConversation_('請介紹所選主題的履歷內容。', cfg, topic.label, userId,
+      null, false, topicId, { index: index, source: source });
+    return { version: appVersion_(), label: topic.label, status: result.answerStatus || 'unavailable',
+      messages: result.messages.filter(function (message) { return message.type === 'text'; }).map(function (message) { return message.text; }),
+      previousWorkSeeded: Boolean(first), elapsedMs: Date.now() - started };
+  } finally { clearConversation_(userId); }
+}

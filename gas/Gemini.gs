@@ -61,7 +61,7 @@ function embedQuery_(question, cfg) {
 function missingAnswer_(recorded) {
   return '目前沒有找到足夠的履歷資料回答這個問題。' +
     (recorded ? '已將問題記錄給履歷主人，供後續確認與補充。' : '') +
-    '你也可以選擇「聯絡方式」向本人確認。';
+    '你也可以輸入「聯絡方式」向本人確認。';
 }
 
 /**
@@ -70,6 +70,7 @@ function missingAnswer_(recorded) {
  */
 function ragErrorMessage_(error) {
   var code = errorCode_(error);
+  if (code === 'TOPIC_SOURCE_UNAVAILABLE') return '這個主題的來源對應暫時異常，請輸入「選單」重新選擇，或直接輸入問題。這不代表履歷缺少相關資料。';
   if (code === 'GEMINI_HTTP_429') {
     return 'Google Gemini API 的使用額度或呼叫頻率已達限制（HTTP 429），目前無法回答。這是 API Key 所屬 Google 專案的限制。請稍後再試，或請管理者到 Google AI Studio 查看配額。';
   }
@@ -246,6 +247,8 @@ function answerResult_(question, cfg, originalQuestion, request, prepared) {
     chunks = chunks.filter(function (chunk) { return chunk.imageKey === request.focus || chunk.section === title; });
     ranking = { minSimilarity: -1, topK: cfg.topK };
   }
+  // 主題來源對應失效是程式／索引問題，不可誤寫成履歷主人的資料缺漏。
+  if (!chunks.length && request && request.topicId) throw new Error('TOPIC_SOURCE_UNAVAILABLE');
   var hits = rankChunks_(request && request.retrievalQuestion || question,
     embedQuery_(request && request.retrievalQuestion || question, cfg), chunks, ranking);
   var result = hits.length ? generateAnswer_(question, hits, cfg, request ? {
@@ -262,6 +265,10 @@ function answerResult_(question, cfg, originalQuestion, request, prepared) {
     return { status: 'stale', message: '履歷資料正在等待同步，請稍後再詢問。' };
   }
   if (result.status === 'missing') {
+    if (request && request.isTopicOverview && hits.length) {
+      safeLog_('TOPIC_OVERVIEW_NOT_GENERATED');
+      return { status: 'unavailable', message: '這個主題有相關履歷資料，但這次 AI 未能整理出回答。請稍後再試，或直接輸入更具體的問題。' };
+    }
     safeLog_(result.reason);
     result.message = missingAnswer_(recordUnansweredQuestion_(originalQuestion || question, result.reason, cfg));
   }

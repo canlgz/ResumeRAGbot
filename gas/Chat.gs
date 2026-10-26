@@ -20,16 +20,23 @@ function answerLineConversation_(question, cfg, originalQuestion, userId, explic
   }
   setMessageTopics_(index, source);
   var memory = readConversation_(userId, index.fingerprint);
-  var request = conversationRequest_(question, memory, index, explicitKey);
-  var topic = topicId && ((index.quickTopics || {}).topics || []).find(function (entry) { return entry.id === topicId; });
+  var topics = (index.quickTopics || {}).topics || [];
+  var topic = topicId ? topics.find(function (entry) { return entry.id === topicId; }) :
+    !explicitKey && topics.find(function (entry) { return entry.label === question; });
   if (topicId && !topic) return { messages: [textMessage_('履歷主題已更新，請輸入「選單」使用最新主題。')] };
+  // 點主題或輸入完整主題名稱，表示開始新的查詢，不能繼承上一件作品。
+  // 特別注意：系統自己產生的「介紹這個主題」不是訪客對舊作品的追問。
+  var explicitTopic = Boolean(topic);
+  if (explicitTopic) question = '請介紹「' + topic.label + '」相關履歷內容，挑選一至兩項已記載的經驗或成果。';
+  var request = conversationRequest_(question, explicitTopic ? null : memory, index, explicitKey);
   if (!topic && !explicitKey && request.previousQuestion && memory && memory.topicId) {
-    topic = ((index.quickTopics || {}).topics || []).find(function (entry) { return entry.id === memory.topicId; });
+    topic = topics.find(function (entry) { return entry.id === memory.topicId; });
   }
   if (topic) {
     request.topicId = topic.id; request.topicScope = topic.scope; request.selectedTitle = topic.label;
+    request.isTopicOverview = explicitTopic;
     request.retrievalQuestion = '主題：' + topic.label + '\n範圍：' + topic.scope + '\n問題：' + question;
-    originalQuestion = topic.label;
+    if (explicitTopic) originalQuestion = topic.label;
   }
   if (explicitKey && request.focus !== explicitKey) return { messages: [textMessage_('這件作品目前無法選取，請重新開啟作品圖庫。')] };
   if (gallery) {
@@ -60,7 +67,7 @@ function answerLineConversation_(question, cfg, originalQuestion, userId, explic
   if (result.status !== 'answered') {
     var missingMessages = [textMessage_(result.message)], confused = result.status === 'missing' ? stickerMessage_('confused') : null;
     if (confused) missingMessages.push(confused);
-    return { messages: missingMessages, fingerprint: result.status === 'missing' ? index.fingerprint : null,
+    return { messages: missingMessages, answerStatus: result.status, fingerprint: result.status === 'missing' ? index.fingerprint : null,
       request: request, works: request.focus ? [request.focus] : [] };
   }
   var messages = [textMessage_(result.answerText), textMessage_(result.source)];
@@ -72,6 +79,6 @@ function answerLineConversation_(question, cfg, originalQuestion, userId, explic
     var portfolio = portfolioMessage_(cards);
     if (portfolio) messages.push(portfolio);
   } catch (error) { safeLog_(errorCode_(error)); }
-  return { messages: messages.slice(0, 5), fingerprint: index.fingerprint, request: request,
+  return { messages: messages.slice(0, 5), answerStatus: 'answered', fingerprint: index.fingerprint, request: request,
     works: cards.length ? cards.map(function (entry) { return entry.imageKey; }) : result.imageKeys };
 }

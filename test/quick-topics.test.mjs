@@ -5,6 +5,78 @@ import { createGas,event } from './harness.mjs';
 const index=f=>f.gas.loadIndex_(f.gas.config_());
 const classifications=f=>f.state.calls.filter(c=>c.body?.generationConfig?.responseSchema?.properties?.topics);
 
+test('every topic click resets prior work focus and supplies nonempty evidence from only the selected topic',()=>{
+  const f=portfolioFixture(),idx=index(f),cfg=f.gas.config_(),previousWork=idx.imageSources[0].imageKey;
+  const topics=idx.quickTopics.topics.slice().sort((a,b)=>Number(a.imageKeys.includes(previousWork))-Number(b.imageKeys.includes(previousWork)));
+  for(const [n,topic] of topics.entries()){
+    // Reproduce the real failure: first focus a work, then click a different topic.
+    f.gas.saveConversation_('user-1',idx.fingerprint,{question:'這張作品的配色',focus:previousWork},[previousWork],Date.now());
+    const before=f.state.calls.length;
+    f.gas.handleEvent_({...event('','switch-'+n),type:'postback',postback:{data:'topic:'+topic.id}},cfg);
+    const calls=f.state.calls.slice(before),reply=calls.find(c=>c.url.endsWith('/message/reply'));
+    assert(reply.body.messages.some(m=>m.text?.startsWith('資料來源：')),topic.label+' should answer rather than claim missing data');
+    const generated=calls.find(c=>c.url.endsWith(':generateContent'));
+    assert(generated,'each topic must reach answer generation');
+    const payload=JSON.parse(generated.body.contents[0].parts[0].text);
+    assert(payload.evidence.length>0);assert(payload.evidence.every(e=>topic.chunkIds.includes(e.id)));
+    assert(payload.question.includes(topic.label));assert.equal(payload.conversation.previousQuestion,'');
+    assert.equal(f.gas.readConversation_('user-1',idx.fingerprint).topicId,topic.id);
+  }
+  assert.equal(f.state.documentWrites,0);
+});
+
+test('typing an exact current topic label selects its own sources without inheriting another work',()=>{
+  const f=portfolioFixture(),idx=index(f),topic=idx.quickTopics.topics.at(-1),previousWork=idx.imageSources[0].imageKey;
+  f.gas.saveConversation_('user-1',idx.fingerprint,{question:'閱讀作品',focus:previousWork},[previousWork],Date.now());
+  const before=f.state.calls.length;f.gas.handleEvent_(event(topic.label,'typed-topic'),f.gas.config_());
+  const call=f.state.calls.slice(before).find(c=>c.url.endsWith(':generateContent'));
+  const payload=JSON.parse(call.body.contents[0].parts[0].text);
+  assert(payload.evidence.length>0);assert(payload.evidence.every(e=>topic.chunkIds.includes(e.id)));
+  assert.equal(f.gas.readConversation_('user-1',idx.fingerprint).topicId,topic.id);
+});
+
+test('owner topic diagnostics exercise real conversation code after prior-work memory and never send LINE messages',()=>{
+  const f=portfolioFixture(),data=index(f),before=f.state.documentWrites;
+  for(const topic of data.quickTopics.topics){
+    const result=f.gas.testImageReviewTopic(f.token,topic.id);
+    assert.equal(result.status,'answered');assert.equal(result.previousWorkSeeded,true);
+    assert(result.messages.some(text=>text.startsWith('資料來源：')));
+  }
+  assert.equal(f.gas.testQuickReplyTopics().status,'ready');
+  assert.equal(f.state.calls.filter(c=>c.url.endsWith('/message/reply')).length,0);
+  assert.equal(f.state.documentWrites,before);
+  assert(![...f.state.cache.keys()].some(key=>key.startsWith('conversation:')));
+  f.state.activeEmail='';assert.throws(()=>f.gas.testQuickReplyTopics(),/OWNER_ONLY/);
+});
+
+test('invalid topic source mapping is an index error, never a missing-resume record',()=>{
+  const f=portfolioFixture(),idx=index(f),topic=idx.quickTopics.topics[0];
+  const file=f.state.files.get(f.state.properties.get('INDEX_FILE_ID'));
+  idx.quickTopics.topics[0].chunkIds=['S999'];file.content=JSON.stringify(idx);
+  let recorded=0;f.gas.recordUnansweredQuestion_=()=>{recorded++;return true;};
+  f.gas.handleEvent_({...event('','bad-source'),type:'postback',postback:{data:'topic:'+topic.id}},f.gas.config_());
+  const reply=f.state.calls.filter(c=>c.url.endsWith('/message/reply')).at(-1).body.messages[0].text;
+  assert.match(reply,/來源對應暫時異常/);assert.equal(recorded,0);
+});
+
+test('AI declining a generated overview never accuses the resume of lacking its own topic',()=>{
+  const f=portfolioFixture(),topic=index(f).quickTopics.topics[0],response=f.state.response;
+  f.state.response=call=>call.url.endsWith(':generateContent')?candidate({grounded:false,answer:'資料不足',evidence:[],sticker:'none'}):response(call);
+  let recorded=0;f.gas.recordUnansweredQuestion_=()=>{recorded++;return true;};
+  const result=f.gas.answerLineConversation_('請介紹所選主題',f.gas.config_(),topic.label,'test-user',null,false,topic.id);
+  assert.equal(result.answerStatus,'unavailable');assert.equal(recorded,0);
+  assert.match(result.messages[0].text,/有相關履歷資料/);
+});
+
+test('a genuinely missing follow-up records the actual question rather than the topic label',()=>{
+  const f=portfolioFixture(),idx=index(f),topic=idx.quickTopics.topics.at(-1),response=f.state.response;
+  f.gas.handleEvent_({...event('','intro'),type:'postback',postback:{data:'topic:'+topic.id}},f.gas.config_());
+  f.state.response=call=>call.url.endsWith(':generateContent')?candidate({grounded:false,answer:'資料不足',evidence:[],sticker:'none'}):response(call);
+  let recorded;f.gas.recordUnansweredQuestion_=question=>{recorded=question;return true;};
+  f.gas.handleEvent_(event('用什麼技術','missing-followup'),f.gas.config_());
+  assert.equal(recorded,'用什麼技術');
+});
+
 test('sync generates 3–6 representative topics once with exclusive complete source membership; subsequent messages reuse them',()=>{
   const f=portfolioFixture(),topics=index(f).quickTopics;
   assert.equal(topics.status,'ready');assert.equal(topics.topics.length,3);

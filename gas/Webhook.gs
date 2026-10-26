@@ -152,7 +152,7 @@ function handleEvent_(event, cfg) {
       try {
         var selected = /^work:([a-f0-9]{64})$/.exec(text);
         var selectedTopic = /^topic:([a-f0-9]{16})$/.exec(text);
-        var question = selected ? '請介紹這件作品的可見內容，以及履歷明確記載的本人角色。' : selectedTopic ? '請介紹這個代表主題的履歷內容，勿重複展開其他主題。' : questions[text] || text;
+        var question = selected ? '請介紹這件作品的可見內容，以及履歷明確記載的本人角色。' : selectedTopic ? '請介紹所選主題的履歷內容。' : questions[text] || text;
         conversation = answerLineConversation_(question, cfg, selected ? '詢問選定作品' : text,
           event.source.userId, selected && selected[1], /^(作品圖庫|作品集|gallery)$/i.test(text), selectedTopic && selectedTopic[1], prepared);
         messages = conversation.messages;

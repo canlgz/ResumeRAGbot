@@ -203,6 +203,20 @@ function checkSetup() {
 }
 
 /**
+ * 【主題驗收】逐一實測目前每個 Quick Reply，包含從舊作品切換到新主題。
+ * 使用真實 Gemini 配額，輸出答案與來源；不傳送 LINE 訊息，也不改履歷。
+ */
+function testQuickReplyTopics() {
+  requireOwner_();
+  var cfg = config_(), index = loadIndex_(cfg);
+  if (!index || !index.quickTopics || index.quickTopics.status !== 'ready') throw new Error('IMAGE_PREVIEW_NEEDS_SYNC');
+  var results = index.quickTopics.topics.map(function (topic) { return testTopicAnswer_(topic.id, cfg); });
+  var result = { version: appVersion_(), status: results.every(function (entry) { return entry.status === 'answered'; }) ? 'ready' : 'needs_review', results: results };
+  console.log(JSON.stringify(result));
+  return result;
+}
+
+/**
  * 【辨識預覽】讀取已同步的圖片文字／校對結果，不重新呼叫 Gemini。
  */
 function previewImageText() {
