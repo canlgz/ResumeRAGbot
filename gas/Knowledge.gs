@@ -1,4 +1,4 @@
-/** Text-only ingestion. Images, linked files, headers and footnotes are not indexed. */
+/** Read public text and image hashes only. OCR runs during sync, never during a query. */
 function readPublicSource_(cfg) {
   requireValue_(cfg.docId, 'RESUME_DOC_ID');
   var doc = DocumentApp.openById(cfg.docId);
@@ -14,33 +14,49 @@ function readPublicSource_(cfg) {
   if (cfg.tabIds.indexOf('*') < 0 && cfg.tabIds.some(function (id) {
     return !selected.some(function (tab) { return tab.getId() === id; });
   })) throw new Error('DOC_TAB_NOT_FOUND');
-  var chunks = [];
+  var chunks = [], images = {}, imageCount = 0;
   selected.forEach(function (tab) {
     var body = tab.asDocumentTab().getBody();
-    var lines = [];
-    for (var i = 0; i < body.getNumChildren(); i++) {
-      var child = body.getChild(i);
-      if (child.getType() === DocumentApp.ElementType.PARAGRAPH) {
-        var paragraph = child.asParagraph();
-        var heading = String(paragraph.getHeading());
-        var text = paragraph.getText();
-        // Preserve native headings; markers themselves must remain plain text.
-        lines.push(/^(HEADING|TITLE)/.test(heading) && text.indexOf('[[') !== 0 ? '## ' + text : text);
-      } else if (typeof child.getText === 'function') {
-        lines.push(child.getText());
-      }
+    var documentText = documentSourceText_(body);
+    // Validate every marker before reading any image blob or calling an external API.
+    var publicText = extractPublic_(documentText.text);
+    var section = '個人履歷', buffer = [];
+    function flushText() {
+      chunks = chunks.concat(chunkText_(buffer.join('\n')).map(function (chunk) {
+        return { section: chunk.section, text: chunk.text, tabId: tab.getId() };
+      }));
+      buffer = ['## ' + section];
     }
-    var publicText = extractPublic_(lines.join('\n'));
-    chunks = chunks.concat(chunkText_(publicText).map(function (chunk) {
-      return { section: chunk.section, text: chunk.text, tabId: tab.getId() };
-    }));
+    publicText.split('\n').forEach(function (line) {
+      var image = Object.prototype.hasOwnProperty.call(documentText.images, line) ? documentText.images[line] : null;
+      if (image) {
+        flushText();
+        if (image.unsupported) throw new Error('IMAGE_DRAWING_UNSUPPORTED');
+        var info = readSourceImage_(image, cfg);
+        if (!Object.prototype.hasOwnProperty.call(images, info.key)) images[info.key] = info;
+        imageCount++;
+        var label = Array.from(section).slice(0, 70).join('') + '｜圖片 ' + imageCount + '（OCR）';
+        chunks.push({ section: label, text: '', tabId: tab.getId(), imageKey: info.key });
+      } else {
+        var heading = line.match(/^#{1,6}\s+(.+)$/);
+        if (heading) section = heading[1].trim();
+        buffer.push(line);
+      }
+    });
+    flushText();
   });
-  if (chunks.length > 100) throw new Error('SOURCE_TOO_LARGE');
-  var size = chunks.reduce(function (sum, c) { return sum + c.text.length; }, 0);
-  if (size > 60000) throw new Error('SOURCE_TOO_LARGE');
+  checkSourceSize_(chunks);
   var fingerprint = sha256_(JSON.stringify({ doc: cfg.docId, tabs: cfg.tabIds,
-    model: cfg.embeddingModel, dimensions: cfg.dimensions, embeddingConfigVersion: 2, chunks: chunks }));
-  return { chunks: chunks, fingerprint: fingerprint, documentUrl: doc.getUrl() };
+    model: cfg.embeddingModel, dimensions: cfg.dimensions, embeddingConfigVersion: 2,
+    ingestionVersion: 3, chunks: chunks }));
+  return { chunks: chunks, images: images, imageCount: imageCount,
+    fingerprint: fingerprint, documentUrl: doc.getUrl() };
+}
+
+function checkSourceSize_(chunks) {
+  if (chunks.length > 100 || chunks.reduce(function (sum, c) { return sum + c.text.length; }, 0) > 60000) {
+    throw new Error('SOURCE_TOO_LARGE');
+  }
 }
 
 function extractPublic_(input) {
@@ -126,22 +142,25 @@ function syncKnowledgeBase_() {
   var newFile = null;
   try {
     var source = readPublicSource_(cfg);
-    var current = props.getProperty('INDEX_FILE_ID');
+    var current = props.getProperty('INDEX_FILE_ID'), existing = null;
+    try { existing = loadIndex_(cfg); } catch (_) { /* Rebuild missing/corrupt storage. */ }
     if (current && props.getProperty('INDEX_FINGERPRINT') === source.fingerprint) {
       // Check storage exists; a missing/deleted file must trigger rebuilding.
       try {
-        var existing = loadIndex_(cfg);
         if (existing && existing.fingerprint === source.fingerprint) {
           props.setProperty('LAST_SYNC_STATUS', 'UNCHANGED');
-          return { status: 'unchanged', chunks: existing.chunks.length };
+          return { status: 'unchanged', chunks: existing.chunks.length, images: source.imageCount };
         }
       } catch (_) { /* Rebuild a missing/corrupt index. */ }
     }
     // Stop serving previous content before any external embedding operation.
     clearIndex_();
     if (!source.chunks.length) throw new Error('NO_PUBLIC_CONTENT');
-    for (var start = 0; start < source.chunks.length; start += 10) {
-      var batch = source.chunks.slice(start, start + 10);
+    var hydrated = hydrateSourceImages_(source, existing, cfg), chunks = hydrated.chunks;
+    if (!chunks.length) throw new Error('NO_SEARCHABLE_CONTENT');
+    checkSourceSize_(chunks);
+    for (var start = 0; start < chunks.length; start += 10) {
+      var batch = chunks.slice(start, start + 10);
       var vectors = embedDocuments_(batch, cfg);
       batch.forEach(function (chunk, i) {
         chunk.id = 'S' + (start + i + 1);
@@ -150,14 +169,15 @@ function syncKnowledgeBase_() {
     }
     // The document may have changed while embeddings were being built.
     if (readPublicSource_(cfg).fingerprint !== source.fingerprint) throw new Error('SOURCE_CHANGED_DURING_SYNC');
-    var index = { version: 1, docId: cfg.docId, embeddingModel: cfg.embeddingModel,
+    var index = { version: 2, docId: cfg.docId, embeddingModel: cfg.embeddingModel,
       dimensions: cfg.dimensions, fingerprint: source.fingerprint,
-      builtAt: new Date().toISOString(), chunks: source.chunks };
+      builtAt: new Date().toISOString(), chunks: chunks,
+      imageTexts: hydrated.imageTexts, imageSources: hydrated.imageSources };
     newFile = DriveApp.createFile('LINE 履歷 RAG 索引.json', JSON.stringify(index), 'application/json');
     props.setProperties({ INDEX_FILE_ID: newFile.getId(), INDEX_FINGERPRINT: source.fingerprint,
       LAST_SYNC_STATUS: 'OK', LAST_SYNC_AT: index.builtAt });
     safeLog_('SYNC_OK');
-    return { status: 'ok', chunks: index.chunks.length, updatedAt: index.builtAt };
+    return { status: 'ok', chunks: index.chunks.length, images: source.imageCount, updatedAt: index.builtAt };
   } catch (error) {
     // No stale resume answers after deletion, malformed markers or permission failure.
     clearIndex_();
@@ -183,7 +203,7 @@ function loadIndex_(cfg) {
   var file = DriveApp.getFileById(id);
   if (file.isTrashed()) throw new Error('INDEX_MISSING');
   var index = JSON.parse(file.getBlob().getDataAsString('UTF-8'));
-  if (index.version !== 1 || index.docId !== cfg.docId || index.embeddingModel !== cfg.embeddingModel ||
+  if ([1, 2].indexOf(index.version) < 0 || index.docId !== cfg.docId || index.embeddingModel !== cfg.embeddingModel ||
       index.dimensions !== cfg.dimensions || !Array.isArray(index.chunks)) throw new Error('INDEX_MISMATCH');
   return index;
 }

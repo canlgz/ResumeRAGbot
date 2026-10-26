@@ -55,6 +55,7 @@ function ragErrorMessage_(error) {
     return 'Google Gemini API 驗證或存取權限失敗（HTTP ' + code.slice(-3) + '）。請管理者檢查 API Key 與專案權限。';
   }
   if (code === 'MISSING_GEMINI_API_KEY') return '尚未設定 Gemini API Key，請管理者完成設定後再試。';
+  if (/^IMAGE_/.test(code)) return '履歷中的圖片尚無法讀取或辨識，請履歷主人依同步記錄檢查圖片格式、清晰度與公開範圍，再同步知識庫。';
   if (/^ANSWER_/.test(code)) return '這次 AI 回答未完成或未通過來源檢查，請稍後再試。這不代表履歷沒有相關資料。';
   if (/^GEMINI_HTTP_5\d\d$/.test(code)) {
     return 'Google Gemini API 暫時無法處理請求（HTTP ' + code.slice(-3) + '），請稍後再試。';

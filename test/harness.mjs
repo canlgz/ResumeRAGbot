@@ -78,7 +78,7 @@ export function createGas(options = {}) {
     LockService: { getScriptLock: () => ({ waitLock() {}, tryLock: () => !state.lockBusy, releaseLock() {} }) },
     Utilities: {
       DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' },
-      computeDigest: (_, text) => [...createHash('sha256').update(text).digest()],
+      computeDigest: (_, text) => [...createHash('sha256').update(typeof text === 'string' ? text : Buffer.from(text)).digest()],
       getUuid: () => randomUUID(),
       base64Encode: bytes => Buffer.from(bytes).toString('base64'), sleep() {},
       formatDate: date => date.toISOString().replace('T', ' ').slice(0, 19)

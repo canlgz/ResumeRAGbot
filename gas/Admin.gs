@@ -64,6 +64,8 @@ function checkSetup() {
     result.documentUrl = source.documentUrl;
     result.document = source.chunks.length ? 'ready' : 'NO_PUBLIC_CONTENT';
     result.publicChunks = source.chunks.length;
+    result.publicImages = source.imageCount;
+    result.imageModel = cfg.imageModel;
   } catch (error) {
     result.document = errorCode_(error) === 'UNEXPECTED_ERROR' ? 'DOC_UNAVAILABLE' : errorCode_(error);
   }
@@ -84,6 +86,7 @@ function checkSetup() {
   if (result.document === 'ready' && result.credentials.GEMINI_API_KEY && result.index !== 'ready') {
     result.nextSteps.push('索引尚未就緒（' + result.index + '）：執行 syncKnowledgeBase，再執行 checkSetup。');
   }
+  if (result.publicImages) result.nextSteps.push('公開區有 ' + result.publicImages + ' 張圖片；同步時辨識文字，完成後可執行 previewImageText 核對辨識內容。');
   var answerTest = PropertiesService.getScriptProperties().getProperty('LAST_ANSWER_TEST') || 'NOT_RUN';
   result.answerTest = answerTest;
   if (result.index === 'ready') {
@@ -101,6 +104,19 @@ function checkSetup() {
   if (result.documentUrl) console.log('履歷文件：' + result.documentUrl);
   result.nextSteps.forEach(function (step, i) { console.log('下一步 ' + (i + 1) + '：' + step); });
   return result;
+}
+
+/** Owner-only preview of already indexed image text; does not call Gemini. */
+function previewImageText() {
+  requireOwner_();
+  var cfg = config_(), source = readPublicSource_(cfg), index = loadIndex_(cfg);
+  if (!index || index.fingerprint !== source.fingerprint) throw new Error('IMAGE_PREVIEW_NEEDS_SYNC');
+  var images = (index.imageSources || []).map(function (entry) {
+    var result = index.imageTexts[entry.imageKey];
+    return { section: entry.section, tabId: entry.tabId, status: result.status, text: result.text };
+  });
+  console.log(JSON.stringify({ status: 'ready', images: images }));
+  return { status: 'ready', images: images };
 }
 
 /** Checks the bot account only; never sends a LINE message. */
