@@ -55,7 +55,7 @@ test('a follow-up after an essential entry keeps its subject but does not remain
 test('four adaptive areas plus two essentials fit the six-button limit without losing any area',()=>{
   const {gas}=createGas();
   const chunks=Array.from({length:5},(_,i)=>({id:'S'+i,section:'組'+i,text:'內容'+i}));
-  const groups=gas.topicGroups_(chunks),quickTopics=gas.validateQuickTopics_({profileGroupIds:['G1'],topics:groups.slice(1).map((g,i)=>({label:'特色領域'+i,scope:'範圍'+i,groupIds:[g.id]}))},groups,'fp',chunks);
+  const groups=gas.topicGroups_(chunks),quickTopics=gas.validateQuickTopics_({profileGroupIds:['G1'],topics:groups.slice(1).map((g,i)=>({category:'專案',label:'特色領域'+i,scope:'範圍'+i,groupIds:[g.id]}))},groups,'fp',chunks);
   const menu=gas.menuTopics_({chunks,quickTopics});assert.equal(menu.length,6);
   assert.deepEqual([...menu.slice(0,2).map(t=>t.label)],['我是誰','快速一覽']);
   assert.equal(new Set(menu.map(t=>t.label)).size,6);
@@ -66,7 +66,7 @@ test('legacy metadata shows both essentials while a menu-only upgrade preserves 
   old.quickTopics.version=2;delete old.quickTopics.profileChunkIds;file.content=JSON.stringify(old);
   assert.deepEqual([...f.gas.menuTopics_(index(f)).slice(0,2).map(t=>t.label)],['我是誰','快速一覽']);
   const before=f.state.calls.length;f.gas.syncKnowledgeBase();
-  const calls=f.state.calls.slice(before);assert.equal(index(f).quickTopics.version,3);
+  const calls=f.state.calls.slice(before);assert.equal(index(f).quickTopics.version,4);
   assert(!calls.some(c=>c.url.endsWith(':batchEmbedContents')||c.body?.contents?.[0]?.parts?.some(p=>p.inlineData)));
 });
 
@@ -165,7 +165,7 @@ test('sync generates adaptive themes once; profile and adaptive sources are excl
 
 test('profile/adaptive duplicates, incomplete groups, core-label collisions and more than four features are rejected',()=>{
   const f=portfolioFixture(),idx=index(f),groups=f.gas.topicGroups_(idx.chunks);
-  const good=groups.slice(0,2).map((g,i)=>({label:['網站設計','攝影海報'][i],scope:'單一範圍'+i,groupIds:[g.id]}));
+  const good=groups.slice(0,2).map((g,i)=>({category:'作品',label:['網站設計','攝影海報'][i],scope:'單一範圍'+i,groupIds:[g.id]}));
   const validate=(topics,profileGroupIds=[groups[2].id])=>f.gas.validateQuickTopics_({profileGroupIds,topics},groups,idx.fingerprint,idx.chunks);
   assert.doesNotThrow(()=>validate(good));
   assert.throws(()=>validate(good.slice(0,1)),/QUICK_TOPICS_INCOMPLETE/);
@@ -208,9 +208,42 @@ test('upgrading a compatible old index adds only topic metadata and failed class
 test('malformed classification retries once and profile-only content keeps just the two basic entries',()=>{
   const f=portfolioFixture(),idx=index(f);let n=0;
   f.state.topicResponse=call=>{const groups=JSON.parse(call.body.contents[0].parts[0].text).groups;
-    return ++n===1?candidate({topics:[]}):candidate({profileGroupIds:[groups[2].id],topics:groups.slice(0,2).map((g,i)=>({label:['介面創作','視覺設計'][i],scope:'範圍'+i,groupIds:[g.id]}))});};
+    return ++n===1?candidate({topics:[]}):candidate({profileGroupIds:[groups[2].id],topics:groups.slice(0,2).map((g,i)=>({category:'作品',label:['介面創作','視覺設計'][i],scope:'範圍'+i,groupIds:[g.id]}))});};
   assert.equal(f.gas.buildQuickTopics_(idx.chunks,f.gas.config_(),idx.fingerprint).topics.length,2);assert.equal(n,2);
   const sparse=createGas();const result=sparse.gas.buildQuickTopics_([{id:'S1',section:'簡介',text:'只有名字。'}],sparse.gas.config_(),'f');
   assert.equal(result.status,'ready');assert.equal(result.topics.length,0);assert.equal(sparse.state.calls.length,1);
   assert.deepEqual([...sparse.gas.menuTopics_({chunks:[{id:'S1'}],quickTopics:result}).map(t=>t.label)],['我是誰','快速一覽']);
+});
+
+test('adaptive labels contain a validated category and a distinct title; category cannot hide duplicate topics',()=>{
+ const {gas}=createGas(),chunks=[{id:'S1',section:'介紹',text:'本人背景'},{id:'S2',section:'專案',text:'知識助理案例'},{id:'S3',section:'設計',text:'海報作品'}],groups=gas.topicGroups_(chunks);
+ const topics=[{category:'專案',label:'知識助理',scope:'只介紹助理案例',groupIds:['G2']},{category:'作品',label:'海報設計',scope:'只介紹海報作品',groupIds:['G3']}];
+ const validate=items=>gas.validateQuickTopics_({profileGroupIds:['G1'],topics:items},groups,'fp',chunks);
+ const result=validate(topics);assert.equal(result.version,4);assert.deepEqual([...result.topics.map(t=>t.label)],['專案：知識助理','作品：海報設計']);
+ assert.equal(result.topics[0].title,'知識助理');assert.equal(result.topics[0].category,'專案');
+ for(const change of [{category:undefined},{category:'其他'},{label:'專案：知識助理'}])assert.throws(()=>validate([{...topics[0],...change},topics[1]]),/QUICK_TOPICS_INVALID/);
+ assert.throws(()=>validate([topics[0],{...topics[1],category:'技能',label:'知識助理'}]),/QUICK_TOPICS_OVERLAP/);
+ assert(result.topics.every(t=>Array.from(t.label).length<=20));
+});
+
+test('v3 label upgrade reuses OCR and vectors, keeps compatible topic IDs, and sync-only classification is stable',()=>{
+ const f=portfolioFixture(),old=index(f),file=f.state.files.get(f.state.properties.get('INDEX_FILE_ID'));
+ const ids=old.quickTopics.topics.map(t=>t.id);old.quickTopics.version=3;
+ old.quickTopics.topics.forEach(t=>{t.label=t.title;delete t.category;delete t.title;});file.content=JSON.stringify(old);
+ const before=f.state.calls.length;f.gas.syncKnowledgeBase();const calls=f.state.calls.slice(before),updated=index(f);
+ assert.equal(updated.quickTopics.version,4);assert.deepEqual([...updated.quickTopics.topics.map(t=>t.id)],[...ids]);
+ assert.equal(calls.filter(c=>c.body?.generationConfig?.responseSchema?.properties?.topics).length,1);
+ assert(!calls.some(c=>c.url.endsWith(':batchEmbedContents')||c.body?.contents?.[0]?.parts?.some(p=>p.inlineData)));
+ const revision=updated.quickTopics.revision,after=f.state.calls.length;f.gas.syncKnowledgeBase();assert.equal(index(f).quickTopics.revision,revision);
+ assert(!f.state.calls.slice(after).some(c=>c.url.includes('generativelanguage')));
+});
+
+test('typed prefixed, ASCII-colon and legacy short names all select the same constrained topic',()=>{
+ const f=portfolioFixture(),topic=index(f).quickTopics.topics[0];
+ for(const [i,label] of [topic.label,topic.label.replace('：',':'),topic.title].entries()){
+  const before=f.state.calls.length;f.gas.handleEvent_(event(label,'categorized-'+i),f.gas.config_());
+  const call=f.state.calls.slice(before).find(c=>c.url.endsWith(':generateContent'));
+  const payload=JSON.parse(call.body.contents[0].parts[0].text);
+  assert(payload.evidence.every(e=>topic.chunkIds.includes(e.id)));assert.equal(f.gas.readConversation_('user-1',index(f).fingerprint).topicId,topic.id);
+ }
 });

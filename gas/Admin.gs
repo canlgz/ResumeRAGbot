@@ -159,7 +159,7 @@ function checkSetup() {
       var index = loadIndex_(cfg);
       result.index = index ? (index.fingerprint === source.fingerprint ? 'ready' : 'needs_sync') : 'missing';
       result.indexBuiltWith = index && index.builtWithAppVersion || 'unknown';
-      result.quickReplies = { status: result.index === 'ready' && index.quickTopics && index.quickTopics.version === 3 ? index.quickTopics.status : 'needs_sync',
+      result.quickReplies = { status: result.index === 'ready' && index.quickTopics && index.quickTopics.version === 4 ? index.quickTopics.status : 'needs_sync',
         labels: menuTopics_(result.index === 'ready' ? index : null).map(function (topic) { return topic.label; }) };
     } catch (error) {
       result.index = errorCode_(error) === 'UNEXPECTED_ERROR' ? 'INDEX_INVALID' : errorCode_(error);

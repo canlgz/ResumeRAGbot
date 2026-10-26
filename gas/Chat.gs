@@ -22,7 +22,7 @@ function answerLineConversation_(question, cfg, originalQuestion, userId, explic
   var memory = readConversation_(userId, index.fingerprint);
   var topics = menuTopics_(index);
   var topic = topicId ? topics.find(function (entry) { return entry.id === topicId; }) :
-    !explicitKey && topics.find(function (entry) { return entry.label === question.replace(/[？?]$/, ''); });
+    !explicitKey && topics.find(function (entry) { var typed = question.replace(/[？?]$/, '').replace(/:/g, '：'); return entry.label === typed || entry.title === typed; });
   if (topicId && !topic) return { messages: [textMessage_('履歷主題已更新，請輸入「選單」使用最新主題。')] };
   // 點主題或輸入完整主題名稱，表示開始新的查詢，不能繼承上一件作品。
   // 特別注意：系統自己產生的「介紹這個主題」不是訪客對舊作品的追問。
@@ -68,24 +68,21 @@ function answerLineConversation_(question, cfg, originalQuestion, userId, explic
         return { type: 'button', action: { type: 'postback', label: Array.from(portfolioTitle_(entry.section)).slice(0, 20).join(''),
           data: 'work:' + entry.imageKey, displayText: '詢問「' + portfolioTitle_(entry.section) + '」' } };
       }) } } };
-    return { messages: [message, choices] };
+    return { messages: [message, choices], answerStatus: 'clarification' };
   }
   var result = answerResult_(question, cfg, originalQuestion, request, { index: index, source: source });
   if (result.status !== 'answered') {
-    var missingMessages = [textMessage_(result.message)], confused = result.status === 'missing' ? stickerMessage_('confused') : null;
-    if (confused) missingMessages.push(confused);
+    var missingMessages = [textMessage_(result.message)];
     return { messages: missingMessages, answerStatus: result.status, fingerprint: result.status === 'missing' ? index.fingerprint : null,
       request: request, works: request.focus ? [request.focus] : [] };
   }
   var messages = [textMessage_(result.answerText), textMessage_(result.source)];
-  var sticker = stickerMessage_(result.sticker);
-  if (sticker) messages.push(sticker);
   var cards = [];
   try {
     cards = portfolioEntries_(index, result.sourceData, cfg, result.imageKeys);
     var portfolio = portfolioMessage_(cards);
     if (portfolio) messages.push(portfolio);
   } catch (error) { safeLog_(errorCode_(error)); }
-  return { messages: messages.slice(0, 5), answerStatus: 'answered', fingerprint: index.fingerprint, request: request,
+  return { messages: messages.slice(0, 5), answerStatus: 'answered', dialogueIntent: result.dialogueIntent, fingerprint: index.fingerprint, request: request,
     works: cards.length ? cards.map(function (entry) { return entry.imageKey; }) : result.imageKeys };
 }

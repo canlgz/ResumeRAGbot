@@ -143,7 +143,7 @@ export function createGas(options = {}) {
           const groups = JSON.parse(call.body.contents[0].parts[0].text).groups;
           const profile=groups.filter(group=>/個人|介紹|簡介|學歷|職涯|技能|聯絡/.test(group.section));
           const adaptive=groups.filter(group=>!profile.includes(group));
-          const topics=['介面實作','視覺設計','流程工具','資料分析'].slice(0,Math.min(4,adaptive.length)).map((label,i)=>({label,scope:'測試特色 '+(i+1),
+          const topics=['介面實作','視覺設計','流程工具','資料分析'].slice(0,Math.min(4,adaptive.length)).map((label,i)=>({category:'作品',label,scope:'測試特色 '+(i+1),
             groupIds:adaptive.filter((_,n)=>n%Math.min(4,adaptive.length)===i).map(group=>group.id)}));
           response = { body: { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({profileGroupIds:profile.map(group=>group.id),topics}) }] } }] } };
         }

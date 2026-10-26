@@ -187,7 +187,7 @@ function syncKnowledgeBase_() {
     if (current && props.getProperty('INDEX_FINGERPRINT') === source.fingerprint) {
       // 步驟 2：相同內容可沿用，但必須確認實際索引檔還存在。
       if (existing && existing.fingerprint === source.fingerprint) {
-          if (!existing.quickTopics || existing.quickTopics.version !== 3 || !existing.quickTopics.homeProfile || existing.quickTopics.homeProfile.version !== 1 || existing.quickTopics.sourceFingerprint !== source.fingerprint) {
+          if (!existing.quickTopics || existing.quickTopics.version !== 4 || existing.quickTopics.labelFormat !== 'category-title-v1' || !existing.quickTopics.homeProfile || existing.quickTopics.homeProfile.version !== 1 || existing.quickTopics.sourceFingerprint !== source.fingerprint) {
             // 只補選單時，即使分類 API 失敗，也保留原本相容且可用的索引。
             preserveTopicUpgrade = true;
             var topics = buildQuickTopics_(existing.chunks, cfg, source.fingerprint);

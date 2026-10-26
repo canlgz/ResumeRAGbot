@@ -15,9 +15,12 @@ function quickReply_() {
 
 var LINE_STICKERS_ = {
   celebrate: { packageId: '11537', stickerId: '52002734' }, // 熊大慶祝（適合專案成果、代表作品、亮點成就）
-  greet:     { packageId: '11537', stickerId: '52002735' }, // 熱情招呼（適合個人介紹、背景簡介、歡迎開場）
+  greet:     { packageId: '11537', stickerId: '52002738' }, // 兔兔與莎莉探頭招呼：開始認識
   thanks:    { packageId: '11537', stickerId: '52002739' }, // 熊大感謝（適合聯絡方式、作品連結、期待合作）
-  confident: { packageId: '11537', stickerId: '52002740' }, // 兔兔沒問題（適合專業技能、工作經歷、職務適配）
+  confident: { packageId: '11537', stickerId: '52002735' }, // 兔兔比讚：有履歷依據的能力肯定，不承諾錄取或勝任
+  interested:{ packageId: '11537', stickerId: '52002752' }, // 兔兔期待：回應明確表達的關注，不推定已決定合作
+  attentive: { packageId: '11537', stickerId: '52002768' }, // 兔兔探頭聆聽：願意釐清，不用問號嘲弄訪客
+  received:  { packageId: '11537', stickerId: '52002740' }, // 兔兔 OK：只表示已保存邀約，不代表面試已排定
   energetic: { packageId: '11537', stickerId: '52002741' }, // 莎莉跳躍（適合學歷學習、工作態度、求職熱忱）
   confused:  { packageId: '11537', stickerId: '52002744' }, // 熊大問號（適合履歷資料不足、待確認補充問題）
   happy:     { packageId: '11537', stickerId: '52002745' }  // 兔兔開心（適合一般正向熱絡交流）
@@ -29,6 +32,58 @@ var LINE_STICKERS_ = {
 function stickerMessage_(mood) {
   var sticker = LINE_STICKERS_[mood];
   return sticker ? { type: 'sticker', packageId: sticker.packageId, stickerId: sticker.stickerId, quickReply: quickReply_() } : null;
+}
+
+/**
+ * 貼圖表達交流目的，不猜測訪客內心。優先採取可觀察的文字訊號，再使用回答模型的意圖。
+ * 技術細節、資料不足、服務錯誤或未提供關鍵條件時，留白比不相稱的表情更清楚。
+ */
+function dialogueStickerIntent_(text, conversation) {
+  if (conversation && conversation.answerStatus === 'clarification') return 'clarification';
+  if (!conversation || conversation.answerStatus !== 'answered') return 'neutral';
+  var request = conversation.request || {}, answer = conversation.messages[0] && conversation.messages[0].text || '';
+  if (/不太懂|看不懂|不懂|不明白|不確定|擔心|疑慮|真的嗎|確定嗎|怎麼證明|說明一下/.test(text)) return 'clarification';
+  if (request.answerMode === 'intro') return 'introduction';
+  if (/配色|構圖|色碼|哪個欄位|什麼欄位|用什麼技術|哪個套件|哪個函式|怎麼計算|如何計算|程式碼/.test(text)) return 'neutral';
+  if (/尚未提供|未提供|無法確認|未記載|不符合|不具備|沒有相關經驗/.test(answer)) return 'neutral';
+  if (/勝任|適合|符合|匹配|能力|擅長/.test(text)) return 'capability';
+  if (/成果|成效|改善|節省|省了|縮短|提升/.test(text) && /\d|提升|縮短|節省|改善/.test(answer)) return 'achievement';
+  return ['introduction', 'capability', 'achievement', 'interest', 'appreciation', 'clarification'].indexOf(conversation.dialogueIntent) >= 0 ? conversation.dialogueIntent : 'neutral';
+}
+
+/** 明確的簡短社交訊息不必向量搜尋，也不記成履歷缺漏；邀約草稿仍由 Contact 先處理。 */
+function socialDialogue_(text, cfg, prepared) {
+  if (/^(?:你好|您好|嗨|哈囉|哈啰|hello|hi)[！!。～~\s]*$/i.test(text)) return {
+    intent: 'introduction', messages: [textMessage_('你好！可以從「我是誰」或「快速一覽」開始，也能直接問你感興趣的經歷與作品。')] };
+  if (/^(?:謝謝(?:你|您|啦)?|多謝|感謝(?:你|您)?|了解了[，,]?謝謝|明白了[，,]?謝謝|thank you|thanks)[！!。～~\s]*$/i.test(text)) return {
+    intent: 'appreciation', messages: [textMessage_('謝謝你的交流！有想深入了解的部分，隨時可以繼續問。')] };
+  if (/^(?:(?:我|我們)?(?:覺得|看起來)?(?:不錯|很有意思|挺有意思)|(?:我|我們)?(?:很|蠻|滿|非常)?有興趣|(?:我|我們)?想進一步了解)[！!。～~\s]*$/.test(text)) return {
+    intent: 'interest', messages: [textMessage_('謝謝你的關注！可以繼續看看經歷與作品；想進一步聊聊時，也可以使用「聯繫本人」。'), contactMessage_(cfg, prepared)] };
+  return null;
+}
+
+function stickerHistoryKey_(userId) { return 'dialogue-sticker:' + sha256_(ScriptApp.getScriptId() + ':' + userId); }
+
+/** 同一訪客 10 分鐘內不重複相同意圖；每次最多一張，不擠掉卡片或超過 LINE 五則上限。 */
+function contextualSticker_(messages, intent, userId) {
+  var moods = { introduction: 'greet', capability: 'confident', achievement: 'celebrate', interest: 'interested',
+    appreciation: 'thanks', clarification: 'attentive', contact: 'thanks', invitation_received: 'received' };
+  var mood = moods[intent];
+  if (!mood || messages.length >= 5 || messages.some(function (message) { return message.type === 'sticker'; })) return null;
+  try {
+    var history = JSON.parse(CacheService.getScriptCache().get(stickerHistoryKey_(userId)) || 'null');
+    if (history && history[intent] > Date.now() - 600000) return null;
+  } catch (_) { return null; }
+  return stickerMessage_(mood);
+}
+
+/** 只有 LINE 回覆成功才記錄貼圖使用時間，傳送失敗可安全重試，不保存訊息正文或 userId。 */
+function rememberDialogueSticker_(intent, userId) {
+  try {
+    var cache = CacheService.getScriptCache(), key = stickerHistoryKey_(userId), history = JSON.parse(cache.get(key) || '{}');
+    Object.keys(history).forEach(function (name) { if (history[name] <= Date.now() - 600000) delete history[name]; });
+    history[intent] = Date.now(); cache.put(key, JSON.stringify(history), 600);
+  } catch (_) { safeLog_('DIALOGUE_STICKER_CACHE_UNAVAILABLE'); }
 }
 
 /**
@@ -121,7 +176,7 @@ function helpText_() {
  * 向訪客說明提問、短期記憶與待補充問題的資料使用方式。
  */
 function privacyText_() {
-  return '我是 AI 履歷助理，回答可能有誤，重要資訊請向本人確認。\n\n資料使用方式：\n• 邀約填寫內容不交給 AI。未確認草稿暫存約 30 分鐘，可能提早失效；確認後存於履歷主人的私有邀約收件匣，並以 Email 與已設定的 LINE 通知本人；由本人查看、處理或刪除，不作為 RAG 知識。\n• 僅使用履歷擁有者標示為公開的內容。\n• LINE 訊息由 Google Apps Script 處理，問題和檢索片段會送至 Google Gemini。\n• 資料不足的問題會寫入履歷主人的 Google 文件，包含問題文字、原因、時間與次數，供本人維護；不附上 LINE 使用者識別碼。\n• 使用雜湊識別的短期記憶，暫存近期問題及作品指向約 10 分鐘，不保存完整回答；輸入「清除對話」可立即清除。LINE 與 Google 本身仍適用各自的資料政策。\n• 使用者識別碼用於處理中動畫及產生短期記憶的雜湊鍵，不保存訪客原始識別碼；主人若設定 LINE 通知，會另存本人的 userId 作為推播收件人。事件識別碼以雜湊形式保存，處理狀態保留約一天以避免重複回覆。\n\n請勿傳送密碼、證件、薪資機密或其他敏感資料。';
+  return '我是 AI 履歷助理，回答可能有誤，重要資訊請向本人確認。\n\n資料使用方式：\n• 邀約填寫內容不交給 AI。未確認草稿暫存約 30 分鐘，可能提早失效；確認後存於履歷主人的私有邀約收件匣，並以 Email 與已設定的 LINE 通知本人；由本人查看、處理或刪除，不作為 RAG 知識。\n• 僅使用履歷擁有者標示為公開的內容。\n• LINE 訊息由 Google Apps Script 處理，問題和檢索片段會送至 Google Gemini。\n• 資料不足的問題會寫入履歷主人的 Google 文件，包含問題文字、原因、時間與次數，供本人維護；不附上 LINE 使用者識別碼。\n• 使用雜湊識別的短期記憶，暫存近期問題及作品指向約 10 分鐘，不保存完整回答；另以雜湊快取短暫保存貼圖意圖與使用時間，避免重複；不儲存對情緒或人格的判斷。輸入「清除對話」可立即清除。LINE 與 Google 本身仍適用各自的資料政策。\n• 使用者識別碼用於處理中動畫及產生短期記憶的雜湊鍵，不保存訪客原始識別碼；主人若設定 LINE 通知，會另存本人的 userId 作為推播收件人。事件識別碼以雜湊形式保存，處理狀態保留約一天以避免重複回覆。\n\n請勿傳送密碼、證件、薪資機密或其他敏感資料。';
 }
 
 /**

@@ -8,8 +8,8 @@ function fill(f,user='user-1'){f.send('invite:start',user,true);f.send('青禾�
 const records=f=>f.gas.loadPortfolioStore_(f.gas.config_()).invitations||{};
 
 test('contact button reads current PUBLIC Doc email without an index or AI; removed/private emails never persist',()=>{
- const f=setup();let msgs=f.send('nav:contact','user-1',true);let card=msgs[0];assert.equal(card.type,'flex');assert.match(JSON.stringify(card),/mailto:resume@company.tw/);assert(!JSON.stringify(card).includes('secret@private.tw'));
- f.state.text=publicDoc.replace('resume@company.tw','new@company.tw');assert.match(JSON.stringify(f.send('想約面試')),/mailto:new@company.tw/);
+ const f=setup();let msgs=f.send('nav:contact','user-1',true);let card=msgs[0];assert.equal(card.type,'flex');assert.equal(card.contents.footer.contents[0].action.type,'postback');assert.equal(f.send('contact:email','user-1',true)[0].text,'resume@company.tw');assert(!JSON.stringify(card).includes('secret@private.tw'));
+ f.state.text=publicDoc.replace('resume@company.tw','new@company.tw');f.send('想約面試');assert.equal(f.send('contact:email','user-1',true)[0].text,'new@company.tw');
  f.state.text=publicDoc.replace('Email：resume@company.tw','未提供信箱');assert(!JSON.stringify(f.send('想合作')).includes('mailto:'));
  assert(!f.state.calls.some(c=>c.url.includes('generativelanguage')));assert.equal(f.state.documentWrites,0);
 });
@@ -75,10 +75,10 @@ test('submitting an invitation never changes RAG source fingerprint or public do
  assert.equal(f.gas.readPublicSource_(f.gas.config_()).fingerprint,before);assert.equal(f.state.text,publicDoc);
 });
 
-test('email punctuation cannot inject recipients or headers into the mailto link',()=>{
+test('Email retrieval returns exact plain text and never launches a mailto URI or treats punctuation as headers',()=>{
  const f=setup();f.state.text=publicDoc.replace('resume@company.tw','resume+hr?cc=other@company.tw');
- const card=f.send('聯繫本人')[0],uri=card.contents.footer.contents[0].action.uri;
- assert.match(uri,/mailto:resume%2Bhr%3Fcc%3Dother@company.tw\?subject=/);assert.equal((uri.match(/\?/g)||[]).length,1);
+ const card=f.send('聯繫本人')[0],action=card.contents.footer.contents[0].action;
+ assert.equal(action.type,'postback');assert.equal(f.send('contact:email','user-1',true)[0].text,'resume+hr?cc=other@company.tw');assert.equal(action.uri,undefined);assert(!JSON.stringify(card).includes('mailto:'));
 });
 
 test('confirmed invitation emails only the current Doc owner address with all fields and safe Reply-To',()=>{

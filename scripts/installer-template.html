@@ -44,9 +44,9 @@
 <body>
 <main>
   <header>
-    <div class="version">RESUMERAGBOT · 學生安裝包 <span id="version">__VERSION__</span></div>
+    <div class="version">RESUMERAGBOT · 第二版 · 學生安裝包 <span id="version">__VERSION__</span></div>
     <h1>把自己的履歷變成 LINE 機器人</h1>
-    <p>先用完整模擬履歷完成測試，再換成自己的資料。照順序完成下列步驟，每一階段都有完成判斷。</p>
+    <p>本頁是第二版，已整合 2026-10-26 完成的功能，不必依序安裝中間版本。先用完整模擬履歷完成測試，再換成自己的資料。照順序完成下列步驟，每一階段都有完成判斷。</p>
   </header>
   <div class="intro">
     <p>請先將 ZIP <strong>全部解壓縮</strong>，再用電腦瀏覽器開啟這個 START_HERE.html（它和 README.md 放在同一個資料夾）。此頁已內含要複製的程式，無須安裝 Node.js 或 Git。</p>
@@ -134,7 +134,7 @@
 
   <section class="step">
     <span class="number">步驟 5</span><h2>同步履歷並確認 AI 能回答</h2>
-    <p>依序在函式下拉選單選擇並執行 syncKnowledgeBase → checkSetup → testResumeAnswer。這裡會使用自己的 Gemini API 配額，同時建立「我是誰」「快速一覽」及最多四個適性特色，先保留模擬資料測試即可。相同已同步內容之後沿用同一份 Quick Reply，不會每次聊天重新分類。</p>
+    <p>依序在函式下拉選單選擇並執行 syncKnowledgeBase → checkSetup → testResumeAnswer。這裡會使用自己的 Gemini API 配額，同時建立「我是誰」「快速一覽」及最多四個「類型：主題」特色，例如「專案：知識助理」「作品：海報設計」，先保留模擬資料測試即可。相同已同步內容之後沿用同一份 Quick Reply，不會每次聊天重新分類。</p>
     <div class="success">完成判斷：document 與 index 都是 ready，testResumeAnswer 沒有出現紅色錯誤，再執行 checkSetup 時 answerTest 為 OK 或 GEMINI_OK。OK 會顯示回答與來源，可對照文件；GEMINI_OK 代表 Gemini 已正常回應、只是這次 AI 回答沒通過來源檢查，屬偶發狀況，不是設定錯誤，直接進行下一步。出現紅色錯誤時，先照記錄的說明與 checkSetup 的「下一步」處理，不必急著部署。</div>
   </section>
 
@@ -184,7 +184,7 @@
       <li>約 10 分鐘內可沿用作品指向；輸入「清除對話」重新開始。若出現額度錯誤，依訊息區分 Google API 配額與安裝問題。</li>
     </ol>
     <p class="small">管理連結 20 分鐘有效，僅供本人使用，不轉傳或交作業。首頁肖像若放在公開介紹中，會在同步時準備獨立公開預覽；沒有肖像則用幾何人物，不會插圖進 Doc。圖片可隨時撤回公開預覽，但已傳送、下載或快取的圖片無法收回。學校帳號若禁止公開分享，仍可搜尋圖片內容，作品卡片則無法開放。</p>
-    <div class="success">完成判斷：LINE 能顯示作品圖文卡片、接續回答同一件作品；Quick Reply 固定「我是誰」「快速一覽」＋最多四個互斥特色，一般共 3–6 項；不足時只保留基本入口、不湊數。內容未改的再次同步，主題不變。</div>
+    <div class="success">完成判斷：LINE 能顯示作品圖文卡片、接續回答同一件作品；Quick Reply 固定「我是誰」「快速一覽」＋最多四個互斥的「類型：主題」特色，一般共 3–6 項；不足時只保留基本入口、不湊數。內容未改的再次同步，主題不變。</div>
   </section>
   <section class="step" id="invitation-notifications">
     <span class="number">步驟 10 · 聯繫與邀約</span><h2>讓邀約自動通知到 Email 與本人 LINE</h2>
@@ -203,11 +203,11 @@
     <div class="actions"><button data-copy="OWNER_LINE_USER_ID">複製 OWNER_LINE_USER_ID 屬性名稱</button></div>
     <h3>10-3 完整送出一次邀約，確認真的收到</h3>
     <ol>
-      <li>LINE 傳「首頁」→ 第一張「聯繫本人」→「留下邀約」。填公司與稱呼、職缺／合作內容、回覆方式、時段（可略過），內容標明「安裝測試」。</li>
+      <li>LINE 傳「首頁」→ 第一張「聯繫本人」→「在 LINE 留邀約」。填公司與稱呼、職缺／合作內容、回覆方式、時段（可略過），內容標明「安裝測試」。</li>
       <li>確認前不會保存或通知；按「確認送出」後，主人應在 Doc 信箱及本人 LINE 各收到完整邀約。再點同一張確認卡，不應重複通知。</li>
       <li>平常直接讀通知即可；需要標記或刪除記錄時，GAS 執行 <code>openInvitations</code>，從記錄開啟完整主人管理網址（含 # 後內容，20 分鐘有效）。</li>
     </ol>
-    <p>「撰寫 Email」開啟訪客自己的郵件程式；「留下邀約」是另一條確認後通知的流程。邀約不送 AI、不寫入 Doc。Google 寄信與 LINE Push 各用帳號自己的額度；任何通知失敗，已保存邀約仍留在私人收件匣，不會自動重寄舊邀約。</p>
+    <p>「取得 Email」回傳純文字信箱，訪客複製後再到慣用郵件服務撰寫寄出；「在 LINE 留邀約」則於確認後由機器人通知本人。邀約不送 AI、不寫入 Doc。Google 寄信與 LINE Push 各用帳號自己的額度；任何通知失敗，已保存邀約仍留在私人收件匣，不會自動重寄舊邀約。</p>
     <p class="small">未設定 OWNER_LINE_USER_ID 時只寄 Email。通知結果待確認時先檢查實際信箱／聊天室；LINE 平台接受推播不代表一定送達或已讀。詳細排錯見 <a href="docs/聯繫與邀約通知.md">聯繫與邀約通知</a>（Markdown 可用文字編輯器閱讀），或 <a href="https://github.com/canlgz/ResumeRAGbot/blob/main/docs/聯繫與邀約通知.md" target="_blank" rel="noopener">線上說明</a>。</p>
     <div class="success">完成判斷：本人收到啟用測試信；新邀約確認後 Email 與 LINE 都有通知。以實際收件為準，不只看 Verify 或執行成功。</div>
   </section>
@@ -220,9 +220,10 @@
       <li>到「部署 → 管理部署」編輯原部署，版本選<strong>「新版本」</strong>並部署；通常沿用原網址。</li>
       <li>執行 checkDeployment。兩個版本相同、status=ready 後，再看 checkSetup.index：ready 可直接測 LINE；只有 needs_sync 才重跑 syncKnowledgeBase。</li>
     </ol>
-    <p>從 v1.3.x 或更早版更新到本版，版本一致後執行一次 syncKnowledgeBase 補建固定入口、適性特色、首頁與肖像預覽。原履歷及辨識規則未變時沿用向量和圖片快取。之後看 checkSetup.quickReplies 的 status 與 labels 確認分類。</p>
+    <p>從第一版或今日中間測試版更新到本版，版本一致後執行一次 syncKnowledgeBase 補建固定入口、適性特色、首頁與肖像預覽。原履歷及辨識規則未變時沿用向量和圖片快取。之後看 checkSetup.quickReplies 的 status 與 labels 確認分類。</p>
     <p class="small">若顯示 DEPLOYMENT_VERSION_MISMATCH，程式會保留現有索引。請先修正版本，不要一直重跑同步。若找不到 checkDeployment，代表貼入的程式仍是舊版；若檢查回報無法連線，需核對公開權限與網址，這不等於版本不同。</p>
   </section>
+  <section class="step"><span class="number">完成後再測試</span><h2>貼圖要配合交流目的</h2><p>傳「你好」「謝謝」「很有興趣」，分別確認招呼、致謝與進一步聯繫的語氣。重複同類訊息時，10 分鐘內不應一直出現同樣貼圖；問技術細節、資料不足或系統錯誤時保留文字，避免用慶祝或問號誤導。邀約填寫中不加裝飾，真正保存後才表示收到。</p><p>更完整的測試見 <a href="https://github.com/canlgz/ResumeRAGbot/blob/main/docs/課堂實作.md" target="_blank" rel="noopener">課堂驗收</a>。此功能不需要另設貼圖金鑰或服務。</p></section>
   <footer>
     <p><a href="https://github.com/canlgz/ResumeRAGbot/blob/main/docs/部署指南.md" target="_blank" rel="noopener">詳細安裝與排錯</a> · <a href="https://github.com/canlgz/ResumeRAGbot/blob/main/docs/履歷填寫指南.md" target="_blank" rel="noopener">履歷填寫指南</a> · <a href="https://github.com/canlgz/ResumeRAGbot/blob/main/docs/課堂實作.md" target="_blank" rel="noopener">課堂驗收</a> · <a href="https://github.com/canlgz/ResumeRAGbot" target="_blank" rel="noopener">GitHub 專案</a></p>
     <p>純 GAS 使用秘密網址保護入口，無法驗證 LINE 簽章；AI 延遲與 API 配額仍需依自己的帳號實測。詳細限制見 README。</p>

@@ -117,7 +117,7 @@ function handleEvent_(event, cfg) {
   if (claim === 'busy') throw new Error('EVENT_BUSY');
   try {
     MESSAGE_TOPICS_ = [];
-    var messages, conversation = null, startedAt = Date.now();
+    var messages, conversation = null, social = null, dialogueIntent = 'neutral', startedAt = Date.now();
     var text = event.type === 'message' && event.message && event.message.type === 'text' ? event.message.text : '';
     if (event.type === 'postback') text = event.postback && event.postback.data || '';
     text = typeof text === 'string' ? text.trim() : '';
@@ -133,6 +133,7 @@ function handleEvent_(event, cfg) {
     else if ((messages = handleContact_(event, text, cfg, prepared))) { /* 聯繫與邀約不經 RAG。 */ }
     else if (/^(清除對話|重新開始|reset)$/i.test(text)) {
       clearConversation_(event.source.userId);
+      CacheService.getScriptCache().remove(stickerHistoryKey_(event.source.userId));
       messages = [textMessage_('短期對話記憶已清除，現在可以開始新的問題。')];
     }
     else if (event.type === 'follow' || /^(選單|首頁|回首頁|履歷首頁|menu|home|開始|nav:home)$/i.test(text)) {
@@ -143,6 +144,9 @@ function handleEvent_(event, cfg) {
     else if (event.type === 'postback' && text.indexOf('evidence:') === 0) {
       // 舊訊息的按鈕無法從 LINE 歷史中移除；僅告知停用，不讀依據或啟動 RAG。
       messages = [textMessage_('「展開答案依據」功能已取消。')];
+    }
+    else if (event.type === 'message' && (social = socialDialogue_(text, cfg, prepared))) {
+      messages = social.messages; dialogueIntent = social.intent;
     }
     else if (!text) messages = [textMessage_('請輸入文字問題，或點選下方的履歷主題。')];
     else if (text.length > 800) messages = [textMessage_('請將問題縮短至 800 字以內；你也可以分開詢問不同的經歷或專案。')];
@@ -169,7 +173,14 @@ function handleEvent_(event, cfg) {
         messages = [textMessage_(ragErrorMessage_(error))];
       }
     }
+    // 先有正確的內容／操作結果，再決定貼圖；錯誤、草稿及首頁不因裝飾多加一張。
+    if (conversation) dialogueIntent = dialogueStickerIntent_(text, conversation);
+    else if (cfg.enabled && messages[0] && messages[0].type === 'flex' && (text === 'nav:contact' || contactIntent_(text))) dialogueIntent = 'contact';
+    else if (messages[0] && /^邀約已存入/.test(messages[0].text || '')) dialogueIntent = 'invitation_received';
+    var sticker = contextualSticker_(messages, dialogueIntent, event.source.userId);
+    if (sticker) messages = messages.concat([sticker]);
     var result = lineReply_(event.replyToken, messages, cfg);
+    if (result === 'replied' && sticker) rememberDialogueSticker_(dialogueIntent, event.source.userId);
     if (result === 'replied' && conversation && conversation.fingerprint && conversation.request) {
       try { saveConversation_(event.source.userId, conversation.fingerprint, conversation.request, conversation.works, startedAt); }
       catch (error) { safeLog_(errorCode_(error)); }

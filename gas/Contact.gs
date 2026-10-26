@@ -44,10 +44,14 @@ function contactMessage_(cfg, prepared) {
     { type: 'text', text: '面試邀約、職缺介紹或合作洽詢，都可以從這裡開始。', size: 'sm', wrap: true, color: '#53635E', margin: 'md' }];
   if (contact.email) contents.push({ type: 'text', text: contact.email, size: 'sm', wrap: true, margin: 'md' });
   var buttons = [];
-  if (contact.available) buttons.push({ type: 'button', height: 'sm', style: 'primary', color: '#23735B', action: {
-    type: 'uri', label: '撰寫 Email', uri: 'mailto:' + encodeURIComponent(contact.email).replace('%40', '@') + '?subject=' + encodeURIComponent('面試邀約／合作洽詢') } });
+  if (contact.available) {
+    contents.push({ type: 'text', text: '自行寄信：取得純文字 Email，複製到慣用的郵件服務撰寫並寄出。', size: 'xs', wrap: true, color: '#687770', margin: 'md' });
+    buttons.push({ type: 'button', height: 'sm', style: 'primary', color: '#23735B', action: {
+      type: 'postback', label: '取得 Email', data: 'contact:email', displayText: '取得 Email' } });
+  }
   else contents.push({ type: 'text', text: contact.unavailable ? '目前無法讀取聯絡資料，可先留下邀約。' : '目前尚未提供可收信的 Email，可先留下邀約。', size: 'xs', wrap: true, color: '#687770', margin: 'md' });
-  buttons.push(contactButton_('留下邀約', 'invite:start'), contactButton_('回首頁', 'nav:home'));
+  contents.push({ type: 'text', text: 'LINE 邀約：在這裡填寫，確認送出後由機器人通知本人。', size: 'xs', wrap: true, color: '#687770', margin: 'md' });
+  buttons.push(contactButton_('在 LINE 留邀約', 'invite:start'), contactButton_('回首頁', 'nav:home'));
   return { type: 'flex', altText: '聯繫本人｜Email 與留下邀約', quickReply: quickReply_(), contents: { type: 'bubble', size: 'kilo',
     body: { type: 'box', layout: 'vertical', paddingAll: '20px', contents: contents },
     footer: { type: 'box', layout: 'vertical', spacing: 'sm', contents: buttons } } };
@@ -166,6 +170,13 @@ function handleContact_(event, text, cfg, prepared, options) {
     cache.remove(key); props.deleteProperty(pendingKey); return null;
   }
   if (text === 'nav:contact') { cache.remove(key); props.deleteProperty(pendingKey); return [contactMessage_(cfg, prepared)]; }
+  // 回傳獨立純文字信箱，手機可長按、電腦可右鍵複製；不依賴 mailto 或剪貼簿動作的支援。
+  if (text === 'contact:email' || /^(?:取得\s*Email|寄信地址)$/i.test(text)) {
+    var contact;
+    try { contact = publicContact_(cfg, prepared); } catch (_) {}
+    if (!contact || !contact.available) return [textMessage_('目前無法取得可收信的 Email，請使用「聯繫本人」留下邀約。')];
+    return [textMessage_(contact.email), textMessage_('請複製上一則信箱，貼到慣用的郵件服務寄信。若要直接在 LINE 完成，請選「在 LINE 留邀約」。')];
+  }
   var lock = LockService.getScriptLock(); lock.waitLock(5000);
   try {
     var draft = invitationDraft_(key), eventId = eventKey_(event), outcomeKey = key + ':' + eventId;
@@ -263,7 +274,11 @@ function testContactFlow(token) {
     try {
       var contact = contactMessage_(cfg, prepared), home = welcomeMessage_(cfg, prepared);
       messages.push(home, contact);
-      // 固定測試地址只驗證 mailto 格式，沒有寄信，也不寫進 Doc 或實際聯繫卡。
+      // 也驗證交流意圖會使用的官方貼圖，只檢查格式，不實際寄送或消耗推播額度。
+      ['greet', 'confident', 'celebrate', 'interested', 'thanks', 'attentive', 'received'].forEach(function (mood) {
+        messages.push(stickerMessage_(mood));
+      });
+      // 固定測試地址只驗證 Email 複製按鈕，沒有寄信，也不寫進 Doc 或實際聯繫卡。
       messages.push(contactMessage_(cfg, { source: { chunks: [{ section: '公開聯絡方式', text: 'Email：contact@resume-rag-bot-demo.org' }] } }));
       messages = messages.concat(step('invite:start', true));
       step('功能測試／測試聯絡人', false); step('驗證邀約確認與儲存流程。', false); step('test@example.invalid', false);

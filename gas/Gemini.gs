@@ -109,15 +109,17 @@ function generateAnswer_(question, hits, cfg, conversation) {
     '若證據不足，grounded=false，answer 使用「目前公開履歷未提供這項資訊」，evidence=[]。',
     '若有足夠證據，grounded=true，列出所用片段的 id 與逐字 quote。quote 必須直接複製該片段 text 內連續的原文，4 到 300 字，保留原有空格與標點，不要改寫、翻譯或用省略號串接。',
     '圖片來源中的「畫面觀察」是模型對可見內容的描述，回答應說明「從作品畫面可見」。可描述構圖、配色與介面元件，不可據此推定作者、本人貢獻、使用技術、功能已完成、真實上線或成效。',
-    '每個事實都應由引用支持。不要在 answer 自行加來源編號或資料來源，程式會另外附上來源。sticker 可依情境選 greet、confident、celebrate、thanks、energetic、happy，不適合時用 none。'
+    '每個事實都應由引用支持。不要在 answer 自行加來源編號或資料來源，程式會另外附上來源。',
+    'dialogueIntent 表示本輪可觀察的交流目的，不是判斷訪客心情：introduction 初次認識、capability 評估能力與職務適配、achievement 關注有依據的成果亮點、interest 訪客明確表達想深入交流、appreciation 致謝收尾、clarification 對方需要釐清或有顧慮、neutral 一般資訊／技術細節。只選一種，不確定選 neutral。',
+    '不要只因描述專案就一律慶祝，不把疑問理解為不友善，不推定對方已決定合作或錄用。貼圖由程式依意圖決定，不能指定 stickerId；答案仍須如實交代限制，不以熱情語氣掩蓋資料不足。'
   ].join('\n');
   var schema = { type: 'OBJECT', properties: {
     grounded: { type: 'BOOLEAN' }, answer: { type: 'STRING' },
-    sticker: { type: 'STRING', enum: ['none', 'greet', 'confident', 'celebrate', 'thanks', 'energetic', 'happy'] },
+    dialogueIntent: { type: 'STRING', enum: ['introduction', 'capability', 'achievement', 'interest', 'appreciation', 'clarification', 'neutral'] },
     evidence: { type: 'ARRAY', items: { type: 'OBJECT', properties: {
       id: { type: 'STRING' }, quote: { type: 'STRING' }
     }, required: ['id', 'quote'] } }
-  }, required: ['grounded', 'answer', 'evidence', 'sticker'] };
+  }, required: ['grounded', 'answer', 'evidence', 'dialogueIntent'] };
   var request = {
     systemInstruction: { parts: [{ text: instructions }] },
     contents: [{ role: 'user', parts: [{ text: JSON.stringify({ question: question, conversation: conversation || null,
@@ -219,7 +221,7 @@ function validateAnswer_(result, hits) {
   var answerText = Array.from(result.answer.trim()).slice(0, 1800).join('');
   var sourceText = '資料來源：' + Array.from(new Set(sections)).join('、');
   return { status: 'answered', answerText: answerText, source: sourceText, answer: answerText + '\n\n' + sourceText,
-    sticker: typeof result.sticker === 'string' ? result.sticker : 'none',
+    dialogueIntent: ['introduction', 'capability', 'achievement', 'interest', 'appreciation', 'clarification', 'neutral'].indexOf(result.dialogueIntent) >= 0 ? result.dialogueIntent : 'neutral',
     sourceIds: Array.from(new Set(sources.map(function (hit) { return hit.id; }))),
     imageKeys: Array.from(new Set(sources.map(function (hit) { return hit.imageKey; }).filter(Boolean))) };
 }
