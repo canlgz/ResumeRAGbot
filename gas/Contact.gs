@@ -184,6 +184,14 @@ function handleContact_(event, text, cfg, prepared, options) {
   if (event.type === 'follow' || /^(?:首頁|選單|回首頁|履歷首頁|home|menu|開始|nav:home|清除對話|重新開始|reset)$/i.test(text) || /^(?:topic|work):/.test(text)) {
     cache.remove(key); props.deleteProperty(pendingKey); return null;
   }
+  // 同一時間只保留一份草稿：人資指令結束未完成的邀約，交給人資流程。
+  if (/^hr:/.test(text) || /^(?:人資|人資模式)$/.test(text)) { cache.remove(key); props.deleteProperty(pendingKey); return null; }
+  // 人資草稿進行中，只有明確的聯繫指令由本流程處理（並結束人資草稿）；「取消」與作答文字交給人資流程。
+  // 舊邀約訊息上的 invite: 按鈕也屬於邀約流程，不能落到 RAG 被當成問題送給 AI。
+  if (hrReviewActive_(event.source.userId, cfg)) {
+    if (!/^(?:nav:contact|contact:email)$|^invite:/.test(text) && text !== '留下邀約') return null;
+    clearHrReview_(event.source.userId, cfg);
+  }
   if (text === 'nav:contact') { cache.remove(key); props.deleteProperty(pendingKey); return [contactMessage_(cfg, prepared)]; }
   // 回傳獨立純文字信箱，手機可長按、電腦可右鍵複製；不依賴 mailto 或剪貼簿動作的支援。
   if (text === 'contact:email' || /^(?:取得\s*Email|寄信地址)$/i.test(text)) {
