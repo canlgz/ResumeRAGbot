@@ -5,12 +5,16 @@
  */
 
 /**
- * 固定兩個基本入口，加上本次有效的適性主題；不在聊天時重新分類。
+ * 固定兩個基本入口，加上「人資」評量入口與本次有效的適性主題；不在聊天時重新分類。
  */
 function quickReply_() {
-  return { items: visibleMenuTopics_().map(function (topic) {
+  var items = visibleMenuTopics_().map(function (topic) {
     return { type: 'action', action: { type: 'postback', label: topic.label, data: 'topic:' + topic.id, displayText: topic.label } };
-  }) };
+  });
+  var hrItem = { type: 'action', action: { type: 'postback', label: '人資', data: 'hr:start', displayText: '人資' } };
+  // 將「人資」放在前排（緊接在「我是誰」「快速一覽」之後），避免在手機上被擠到最右側需滑動才看得到
+  items.splice(Math.min(2, items.length), 0, hrItem);
+  return { items: items };
 }
 
 var LINE_STICKERS_ = {
@@ -161,7 +165,7 @@ function welcomeMessage_(cfg, prepared) {
   return { type: 'flex', altText: Array.from(name).slice(0,50).join('') + '｜認識我・個人特質・履歷導覽', quickReply: quickReply_(), contents: { type: 'carousel', contents: [
     card('01', 'HELLO / 認識我', identity, [contactButton_('聯繫本人', 'nav:contact')]),
     card('02', 'ABOUT / 個人特質', traits, [compactButton(buttons[1])]),
-    card('03', 'EXPLORE / 履歷導覽', navigation, [{ type: 'button', height: 'sm', style: 'link', color: '#23735B', action: { type: 'postback', label: '回首頁', data: 'nav:home', displayText: '首頁' } }])
+    card('03', 'EXPLORE / 履歷導覽', navigation, [contactButton_('人資適配評量', 'hr:start')])
   ] } };
 }
 
