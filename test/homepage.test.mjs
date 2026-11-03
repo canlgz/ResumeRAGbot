@@ -22,7 +22,8 @@ test('three compact home pages use only current public facts and match every qui
   assert(home.contents.contents.every(c=>c.size==='kilo'));
   assert.match(JSON.stringify(home.contents.contents[0]),/陳沐言/);assert.match(JSON.stringify(home.contents.contents[0]),/muyan.chen@example.invalid/);
   assert.match(JSON.stringify(home.contents.contents[1]),/先做小範圍原型/);
-  assert.deepEqual(home.contents.contents[2].body.contents.slice(2).flatMap(r=>r.contents.map(c=>c.action)),home.quickReply.items.map(i=>i.action));
+  assert.deepEqual(home.contents.contents[2].body.contents.slice(2).flatMap(r=>r.contents.map(c=>c.action)),home.quickReply.items.filter(i=>i.action.data!=='hr:start').map(i=>i.action));
+  assert(home.quickReply.items.some(i=>i.action.label==='人資'&&i.action.data==='hr:start'));
   assert(!calls.some(c=>c.url.includes('generativelanguage')));
 });
 
@@ -89,7 +90,7 @@ test('home aliases and the persistent card button can reopen all three cards rep
   const e=label==='nav:home'?{...event('',String(i)),type:'postback',postback:{data:label}}:event(label,String(i));
   f.gas.handleEvent_(e,f.gas.config_());
   const calls=f.state.calls.slice(before),home=calls.find(c=>c.url.endsWith('/message/reply')).body.messages[0];
-  assert.equal(home.contents.contents.length,3);assert.equal(home.contents.contents[2].footer.contents[0].action.data,'nav:home');
+  assert.equal(home.contents.contents.length,3);assert.equal(home.contents.contents[2].footer.contents[0].action.data,'hr:start');
   assert(!calls.some(c=>c.url.includes('generativelanguage')));
  }
  assert.equal(f.state.documentWrites,0);
