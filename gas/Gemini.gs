@@ -56,6 +56,17 @@ function embedQuery_(question, cfg) {
 }
 
 /**
+ * 人資「逐項對照」用：多個查詢合併成一次批次請求，維持一次 HTTP 往返。
+ */
+function embedQueries_(questions, cfg) {
+  var data = geminiRequest_(cfg.embeddingModel, 'batchEmbedContents', {
+    requests: questions.map(function (q) { return embeddingRequest_(q, 'RETRIEVAL_QUERY', '', cfg); })
+  }, cfg, false);
+  if (!data || !Array.isArray(data.embeddings) || data.embeddings.length !== questions.length) throw new Error('INVALID_EMBEDDING_BATCH');
+  return data.embeddings.map(function (e) { return normalizeVector_(e && e.values, cfg.dimensions); });
+}
+
+/**
  * 只有問題確實已寫入待補充區時，才告訴訪客已記錄。
  */
 function missingAnswer_(recorded) {

@@ -80,7 +80,9 @@ test('Complete the questionnaire: confirmation lists role and parsed requirement
   assert.match(confirmation[0].text, /AI 應用工程師/);
   assert.match(confirmation[0].text, /1\. Python\n2\. RAG\n3\. LINE Bot/);
   const id = f.draft().id;
-  assert.deepEqual(confirmation[1].contents.footer.contents.map(b => b.action.data), ['hr:submit:' + id, 'hr:restart:' + id, 'hr:cancel']);
+  assert.deepEqual(confirmation[1].contents.footer.contents.map(b => b.action.data), ['hr:submit:' + id, 'hr:deep:' + id, 'hr:restart:' + id, 'hr:cancel']);
+  const bodyActions = confirmation[1].contents.body.contents.filter(c => c.type === 'button').map(b => b.action.data);
+  assert.deepEqual(bodyActions, [0, 1, 2].map(i => 'hr:drop:' + id + ':' + i).concat('hr:edit:' + id));
   assert.equal(f.ai().length, before);
   assert.equal(f.draft().step, 3);
   assert.equal(f.gas.readConversation_('user-1', f.gas.loadIndex_(f.gas.config_()).fingerprint), null);
@@ -244,10 +246,10 @@ test('Privacy text explains the difference between HR mode and invitations', () 
   assert.match(f.send('使用說明')[0].text, /人資模式/);
 });
 
-test('Deployment check after upgrade reports 3.0.0 on both sides and keeps a v2 index ready', () => {
+test('Deployment check after upgrade reports 3.1.0 on both sides and keeps a v2 index ready', () => {
   const publicUrl = 'https://script.google.com/macros/s/student-v3/exec';
   const f = setup();
-  assert.equal(f.gas.appVersion_(), "3.0.0");
+  assert.equal(f.gas.appVersion_(), "3.1.0");
   const file = f.state.files.get(f.state.properties.get('INDEX_FILE_ID'));
   const idx = JSON.parse(file.content); idx.builtWithAppVersion = '2.0.0'; file.content = JSON.stringify(idx);
   const previous = f.state.response;
@@ -255,8 +257,8 @@ test('Deployment check after upgrade reports 3.0.0 on both sides and keeps a v2 
   f.state.properties.set('WEB_APP_URL', publicUrl);
   const result = f.gas.checkDeployment();
   assert.equal(result.status, 'ready');
-  assert.equal(result.editorVersion, '3.0.0');
-  assert.equal(result.webAppVersion, '3.0.0');
+  assert.equal(result.editorVersion, '3.1.0');
+  assert.equal(result.webAppVersion, '3.1.0');
   assert.equal(f.gas.checkSetup().index, 'ready');
 });
 
