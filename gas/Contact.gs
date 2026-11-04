@@ -91,11 +91,27 @@ var INVITATION_FIELDS_ = [
 ];
 
 function invitationPrompt_(draft) {
-  var field = INVITATION_FIELDS_[draft.step], message = textMessage_('留下邀約 ' + (draft.step + 1) + ' / 4\n' + field.prompt +
-    (draft.step === 0 ? '\n\n確認後才會存入履歷主人的私有邀約收件匣，並以 Email 與已設定的 LINE 通知本人；填寫內容不交給 AI。30 分鐘內可繼續，輸入「取消」可離開。' : ''));
+  var field = INVITATION_FIELDS_[draft.step], carried = draft.step === 1 && draft.carry;
+  var message = textMessage_('留下邀約 ' + (draft.step + 1) + ' / 4\n' + (carried ?
+    '已從人資對照帶入以下內容：\n\n' + draft.carry + '\n\n按「使用帶入內容」直接採用，或傳送補充說明（會接在帶入內容後面）。' : field.prompt) +
+    (draft.step === 0 ? '\n\n確認後才會存入履歷主人的私有邀約收件匣，並以 Email 與已設定的 LINE 通知本人；填寫內容不交給 AI。30 分鐘內可繼續，輸入「取消」可離開。' +
+      (draft.carry ? '\n人資對照的職位與待確認條件會在第 2 題帶入。' : '') : ''));
   message.quickReply = { items: [{ type: 'action', action: { type: 'postback', label: '取消邀約', data: 'invite:cancel', displayText: '取消邀約' } }] };
   if (draft.step === 3) message.quickReply.items.unshift({ type: 'action', action: { type: 'postback', label: '略過時段', data: 'invite:skip:' + draft.id, displayText: '略過時段' } });
+  if (carried) message.quickReply.items.unshift({ type: 'action', action: { type: 'postback', label: '使用帶入內容', data: 'invite:carry:' + draft.id, displayText: '使用帶入內容' } });
   return [message];
+}
+
+/**
+ * 人資模式「帶入邀約」：建立新的邀約草稿並預先帶入職位與待確認條件。
+ * 呼叫者已持有鎖；仍須訪客逐題填寫並確認送出，才會保存與通知。
+ */
+function startCarriedInvitation_(userId, cfg, carry) {
+  var key = invitationKey_(userId, cfg);
+  var draft = { id: sha256_(Utilities.getUuid()).slice(0, 32), step: 0, fields: {}, carry: String(carry || ''), expiresAt: Date.now() + 1800000 };
+  CacheService.getScriptCache().put(key, JSON.stringify(draft), 1800);
+  PropertiesService.getScriptProperties().setProperty('pending_' + key, draft.id);
+  return invitationPrompt_(draft);
 }
 
 function invitationConfirmation_(draft) {
@@ -185,6 +201,8 @@ function handleContact_(event, text, cfg, prepared, options) {
     cache.remove(key); props.deleteProperty(pendingKey); return null;
   }
   // 同一時間只保留一份草稿：人資指令結束未完成的邀約，交給人資流程。
+  // 「帶入邀約」由人資流程建立新的邀約草稿；LINE 重送同一事件時不能把它清掉。
+  if (/^hr:invite:/.test(text)) return null;
   if (/^hr:/.test(text) || /^(?:人資|人資模式)$/.test(text)) { cache.remove(key); props.deleteProperty(pendingKey); return null; }
   // 人資草稿進行中，只有明確的聯繫指令由本流程處理（並結束人資草稿）；「取消」與作答文字交給人資流程。
   // 舊邀約訊息上的 invite: 按鈕也屬於邀約流程，不能落到 RAG 被當成問題送給 AI。
@@ -215,7 +233,10 @@ function handleContact_(event, text, cfg, prepared, options) {
       cache.remove(key); props.deleteProperty(pendingKey); draft = null; return remember([textMessage_('已取消填寫，未送出新的邀約。')]);
     }
     if (text === 'invite:start' || text === '留下邀約' || draft && text === 'invite:restart:' + draft.id) {
+      // 重新填寫保留人資對照帶入的內容；全新的「留下邀約」不帶入。
+      var carry = text !== 'invite:start' && text !== '留下邀約' && draft && draft.carry;
       draft = { id: sha256_(Utilities.getUuid()).slice(0, 32), step: 0, fields: {}, expiresAt: Date.now() + 1800000 };
+      if (carry) draft.carry = carry;
       props.setProperty(pendingKey, draft.id);
       return remember(invitationPrompt_(draft));
     }
@@ -239,9 +260,14 @@ function handleContact_(event, text, cfg, prepared, options) {
     // 快取提早清除後，用不含個資的待填旗標攔住下一則訊息，避免誤送 RAG。
     if (!draft && props.getProperty(pendingKey)) { props.deleteProperty(pendingKey); return remember([textMessage_('邀約草稿已過期，剛才的內容沒有交給 AI 或送出。請重新選擇「留下邀約」，或輸入「首頁」離開。')]); }
     if (draft && draft.step < 4) {
-      var field = INVITATION_FIELDS_[draft.step], value = text;
+      var field = INVITATION_FIELDS_[draft.step], value = text, carried = draft.step === 1 && draft.carry;
       if (text === 'invite:skip:' + draft.id && draft.step === 3) value = '';
+      else if (carried && text === 'invite:carry:' + draft.id) value = draft.carry;
       else if (event.type !== 'message' || !text || /^invite:/.test(text)) return invitationPrompt_(draft);
+      else if (carried) {
+        value = draft.carry + '\n\n補充：' + text;
+        if (value.length > field.limit) return [textMessage_('補充說明請控制在 ' + Math.max(1, field.limit - draft.carry.length - 5) + ' 字內，再傳送一次。')];
+      }
       else if (text.length > field.limit) return [textMessage_('這一欄請控制在 ' + field.limit + ' 字內，再傳送一次。')];
       draft.fields[field.key] = value; draft.step++;
       return remember(draft.step === 4 ? invitationConfirmation_(draft) : invitationPrompt_(draft));
