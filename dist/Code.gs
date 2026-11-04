@@ -1629,6 +1629,26 @@ function overviewHits_(question, vector, index, cfg) {
   return selected.slice(0, cfg.topK);
 }
 
+/** 明確指定單張圖片並要求轉寫時，直接顯示已索引的文字，避免生成模型誤判資料不足。 */
+function imageTranscriptResult_(question, index, source, chunks, request) {
+  if (!/逐字|轉寫|英文文字|區塊.*文字/.test(question)) return null;
+  var candidates = (index.imageSources || []).filter(function (entry) {
+    if (!source.images || !source.images[entry.imageKey] || !chunks.some(function (chunk) { return chunk.imageKey === entry.imageKey; })) return false;
+    if (request && request.focus) return request.focus === entry.imageKey;
+    var title = portfolioTitle_(entry.section).replace(/（[^）]*）|\([^)]*\)/g, '').trim();
+    return title.length >= 4 && question.indexOf(title) >= 0;
+  });
+  if (candidates.length !== 1) return null;
+  var entry = candidates[0], text = ((index.imageReviewedTexts || {})[entry.imageKey] || (index.imageTexts || {})[entry.imageKey] || {}).transcription;
+  if (typeof text !== 'string' || !text.trim() || text.length > 1800) return null;
+  var hits = chunks.filter(function (chunk) { return chunk.imageKey === entry.imageKey; });
+  if (hits.map(function (hit) { return hit.text; }).join('\n').indexOf(text) < 0) return null;
+  var answer = '從指定圖片辨識到以下文字（完整轉寫，未另外推定各文字的位置）：\n' + text;
+  var citation = '資料來源：' + entry.section;
+  return { status: 'answered', answerText: answer, source: citation, answer: answer + '\n\n' + citation,
+    dialogueIntent: 'neutral', sourceIds: hits.map(function (hit) { return hit.id; }), imageKeys: [entry.imageKey] };
+}
+
 function answerResult_(question, cfg, originalQuestion, request, prepared) {
   var index = prepared ? prepared.index : loadIndex_(cfg);
   if (!index) return { status: 'unavailable', message: '履歷資料正在準備中，請稍後再來，或直接與本人聯繫。' };
@@ -1652,6 +1672,12 @@ function answerResult_(question, cfg, originalQuestion, request, prepared) {
   }
   // 主題來源對應失效是程式／索引問題，不可誤寫成履歷主人的資料缺漏。
   if (!chunks.length && request && request.topicId) throw new Error('TOPIC_SOURCE_UNAVAILABLE');
+  var transcript = imageTranscriptResult_(question, index, source, chunks, request);
+  if (transcript) {
+    if (readPublicSource_(cfg).fingerprint !== index.fingerprint) return { status: 'stale', message: '履歷資料正在等待同步，請稍後再詢問。' };
+    transcript.index = index; transcript.sourceData = source;
+    return transcript;
+  }
   var query = request && request.retrievalQuestion || question, vector = embedQuery_(query, cfg);
   var hits = request && request.answerMode === 'overview' ? overviewHits_(query, vector, index, cfg) : rankChunks_(query, vector, chunks, ranking);
   var result = hits.length ? generateAnswer_(question, hits, cfg, request ? {
