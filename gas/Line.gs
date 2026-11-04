@@ -8,9 +8,11 @@
  * 固定兩個基本入口，加上本次有效的適性主題；不在聊天時重新分類。
  */
 function quickReply_() {
-  return { items: visibleMenuTopics_().map(function (topic) {
+  var items = visibleMenuTopics_().map(function (topic) {
     return { type: 'action', action: { type: 'postback', label: topic.label, data: 'topic:' + topic.id, displayText: topic.label } };
-  }) };
+  });
+  items.splice(2, 0, { type: 'action', action: { type: 'postback', label: '人資', data: 'hr:start', displayText: '人資' } });
+  return { items: items };
 }
 
 var LINE_STICKERS_ = {
@@ -161,7 +163,7 @@ function welcomeMessage_(cfg, prepared) {
   return { type: 'flex', altText: Array.from(name).slice(0,50).join('') + '｜認識我・個人特質・履歷導覽', quickReply: quickReply_(), contents: { type: 'carousel', contents: [
     card('01', 'HELLO / 認識我', identity, [contactButton_('聯繫本人', 'nav:contact')]),
     card('02', 'ABOUT / 個人特質', traits, [compactButton(buttons[1])]),
-    card('03', 'EXPLORE / 履歷導覽', navigation, [{ type: 'button', height: 'sm', style: 'link', color: '#23735B', action: { type: 'postback', label: '回首頁', data: 'nav:home', displayText: '首頁' } }])
+    card('03', 'EXPLORE / 履歷導覽', navigation, [{ type: 'button', height: 'sm', style: 'link', color: '#23735B', action: { type: 'postback', label: '回首頁', data: 'nav:home', displayText: '首頁' } }, { type: 'button', height: 'sm', style: 'link', color: '#23735B', action: { type: 'postback', label: '人資三題與熱圖', data: 'hr:start', displayText: '人資' } }])
   ] } };
 }
 
@@ -169,14 +171,14 @@ function welcomeMessage_(cfg, prepared) {
  * 訪客輸入「使用說明」時顯示的操作方法。
  */
 function helpText_() {
-  return '輸入「聯繫本人」「想約面試」或「想合作」，可查看 Email 或留下邀約。\n\n你可以直接提問，例如：\n• 請用 30 秒介紹這位求職者。\n• 有哪些工作經歷與具體成果？\n• 做過哪些與資料分析相關的專案？\n• 這份履歷有哪些符合產品經理職缺的條件？\n• 如何聯絡本人？\n\n約 10 分鐘內可接續追問同一件作品，例如「這張用了什麼配色？」；輸入「清除對話」可重新開始。短期記憶可能提早失效，屆時請補上作品名稱。回答依據公開履歷；找不到足夠資料的問題會記錄給履歷主人確認與補充。\n\n隨時輸入「首頁」「選單」或「回首頁」，就能重新開啟三張履歷卡；輸入「隱私」查看資料使用方式。';
+  return '點選「人資」進行職稱、技能、經驗三題設定，查看文件證據強度熱圖。熱圖是 AI 對文件的整理，不是錄取建議；履歷沒寫不代表本人不會。\n\n輸入「職缺對照」可貼上職缺、確認條件，再逐項查看履歷原文與面試追問。\n\n輸入「聯繫本人」「想約面試」或「想合作」，可查看 Email 或留下邀約。\n\n你可以直接提問，例如：\n• 請用 30 秒介紹這位求職者。\n• 有哪些工作經歷與具體成果？\n• 做過哪些與資料分析相關的專案？\n• 這份履歷有哪些符合產品經理職缺的條件？\n• 如何聯絡本人？\n\n約 10 分鐘內可接續追問同一件作品，例如「這張用了什麼配色？」；輸入「清除對話」可重新開始。短期記憶可能提早失效，屆時請補上作品名稱。回答依據公開履歷；找不到足夠資料的問題會記錄給履歷主人確認與補充。\n\n隨時輸入「首頁」「選單」或「回首頁」，就能重新開啟三張履歷卡；輸入「隱私」查看資料使用方式。';
 }
 
 /**
  * 向訪客說明提問、短期記憶與待補充問題的資料使用方式。
  */
 function privacyText_() {
-  return '我是 AI 履歷助理，回答可能有誤，重要資訊請向本人確認。\n\n資料使用方式：\n• 邀約填寫內容不交給 AI。未確認草稿暫存約 30 分鐘，可能提早失效；確認後存於履歷主人的私有邀約收件匣，並以 Email 與已設定的 LINE 通知本人；由本人查看、處理或刪除，不作為 RAG 知識。\n• 僅使用履歷擁有者標示為公開的內容。\n• LINE 訊息由 Google Apps Script 處理，問題和檢索片段會送至 Google Gemini。\n• 資料不足的問題會寫入履歷主人的 Google 文件，包含問題文字、原因、時間與次數，供本人維護；不附上 LINE 使用者識別碼。\n• 使用雜湊識別的短期記憶，暫存近期問題及作品指向約 10 分鐘，不保存完整回答；另以雜湊快取短暫保存貼圖意圖與使用時間，避免重複；不儲存對情緒或人格的判斷。輸入「清除對話」可立即清除。LINE 與 Google 本身仍適用各自的資料政策。\n• 使用者識別碼用於處理中動畫及產生短期記憶的雜湊鍵，不保存訪客原始識別碼；主人若設定 LINE 通知，會另存本人的 userId 作為推播收件人。事件識別碼以雜湊形式保存，處理狀態保留約一天以避免重複回覆。\n\n請勿傳送密碼、證件、薪資機密或其他敏感資料。';
+  return '我是 AI 履歷助理，回答可能有誤，重要資訊請向本人確認。\n\n資料使用方式：\n• 邀約填寫內容不交給 AI。未確認草稿暫存約 30 分鐘，可能提早失效；確認後存於履歷主人的私有邀約收件匣，並以 Email 與已設定的 LINE 通知本人；由本人查看、處理或刪除，不作為 RAG 知識。\n• 僅使用履歷擁有者標示為公開的內容。\n• 人資三題需求與檢索片段會交給 Gemini，草稿按訪客雜湊隔離暫存約 30 分鐘，不寫入履歷或索引。輸入「取消評量」清除。\n• 職缺對照會把職缺與檢索片段交給 Gemini，條件與引用按訪客雜湊隔離暫存約 10 分鐘，不寫回 Doc 或履歷索引。輸入「取消對照」清除草稿。\n• LINE 訊息由 Google Apps Script 處理，問題和檢索片段會送至 Google Gemini。\n• 資料不足的問題會寫入履歷主人的 Google 文件，包含問題文字、原因、時間與次數，供本人維護；不附上 LINE 使用者識別碼。\n• 使用雜湊識別的短期記憶，暫存近期問題及作品指向約 10 分鐘，不保存完整回答；另以雜湊快取短暫保存貼圖意圖與使用時間，避免重複；不儲存對情緒或人格的判斷。輸入「清除對話」可立即清除。LINE 與 Google 本身仍適用各自的資料政策。\n• 使用者識別碼用於處理中動畫及產生短期記憶的雜湊鍵，不保存訪客原始識別碼；主人若設定 LINE 通知，會另存本人的 userId 作為推播收件人。事件識別碼以雜湊形式保存，處理狀態保留約一天以避免重複回覆。\n\n請勿傳送密碼、證件、薪資機密或其他敏感資料。';
 }
 
 /**

@@ -22,7 +22,7 @@ test('three compact home pages use only current public facts and match every qui
   assert(home.contents.contents.every(c=>c.size==='kilo'));
   assert.match(JSON.stringify(home.contents.contents[0]),/陳沐言/);assert.match(JSON.stringify(home.contents.contents[0]),/muyan.chen@example.invalid/);
   assert.match(JSON.stringify(home.contents.contents[1]),/先做小範圍原型/);
-  assert.deepEqual(home.contents.contents[2].body.contents.slice(2).flatMap(r=>r.contents.map(c=>c.action)),home.quickReply.items.map(i=>i.action));
+  assert.deepEqual(home.contents.contents[2].body.contents.slice(2).flatMap(r=>r.contents.map(c=>c.action)),home.quickReply.items.filter(i=>i.action.data!=='hr:start').map(i=>i.action));
   assert(!calls.some(c=>c.url.includes('generativelanguage')));
 });
 
