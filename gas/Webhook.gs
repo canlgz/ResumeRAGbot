@@ -131,8 +131,10 @@ function handleEvent_(event, cfg) {
     }
     if (!cfg.enabled) messages = [textMessage_('履歷助理目前暫停服務，請稍後再試。')];
     else if ((messages = handleContact_(event, text, cfg, prepared))) {
+      CacheService.getScriptCache().remove(hrDraftKey_(event.source.userId, cfg));
       CacheService.getScriptCache().remove(jobKey_(event.source.userId, cfg));
     }
+    else if ((messages = handleHr_(event, text, cfg, prepared))) { /* 人資三題流程。 */ }
     else if ((messages = handleJobMatch_(event, text, cfg))) { /* 職缺內容獨立處理，不寫入待補充問題。 */ }
     else if (/^(清除對話|重新開始|reset)$/i.test(text)) {
       clearConversation_(event.source.userId);
