@@ -184,16 +184,16 @@ function validatePortfolioCards(token) {
     setMessageTopics_(index, source);
     var entries = portfolioEntries_(index, source, cfg), message = portfolioMessage_(entries);
     if (!message) throw new Error('PORTFOLIO_NO_PUBLIC_IMAGES');
-    var home = welcomeMessage_(cfg, { index: index, source: source });
-    // 同時驗證無肖像的顯示分支；只替換測試訊息元件，不動來源或文件。
+    var prepared = { index: index, source: source }, home = welcomeMessage_(cfg, prepared), explore = exploreMenu_(cfg, prepared);
+    // 同時驗證無肖像的顯示分支；只替換測試訊息元件，不動來源或文件。名片的頭像位於 body 第一列的第一格。
     var homeWithoutPortrait = JSON.parse(JSON.stringify(home));
-    homeWithoutPortrait.contents.contents[0].body.contents[0] = friendlyAvatar_();
+    homeWithoutPortrait.contents.body.contents[0].contents[0] = friendlyAvatar_();
     var response = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/validate/reply', {
       method: 'post', contentType: 'application/json', headers: { Authorization: 'Bearer ' + cfg.lineToken },
-      payload: JSON.stringify({ messages: [message, home, homeWithoutPortrait] }), muteHttpExceptions: true
+      payload: JSON.stringify({ messages: [message, home, homeWithoutPortrait, explore] }), muteHttpExceptions: true
     });
     if (response.getResponseCode() !== 200) throw new Error('LINE_CARD_VALIDATION_' + response.getResponseCode());
-    return { status: 'valid', images: entries.length, home: home, homeWithoutPortrait: homeWithoutPortrait, message: 'LINE 已接受首頁與作品卡片格式；這項檢查沒有傳送訊息。' };
+    return { status: 'valid', images: entries.length, home: home, homeWithoutPortrait: homeWithoutPortrait, explore: explore, message: 'LINE 已接受名片、導覽卡與作品卡片格式；這項檢查沒有傳送訊息。' };
   });
 }
 

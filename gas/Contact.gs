@@ -38,38 +38,38 @@ function contactButton_(label, data) { return { type: 'button', height: 'sm', st
 
 /** 以原生 Flex 幾何圖形畫小型複製圖示，不需外部圖片網址。 */
 function copyEmailIcon_(email) {
+  var c = CARD_COLORS_;
   function sheet(left, top, fill) { return { type: 'box', layout: 'vertical', position: 'absolute',
     width: '12px', height: '14px', offsetStart: left + 'px', offsetTop: top + 'px', cornerRadius: '2px',
-    borderWidth: '1px', borderColor: '#23735B', backgroundColor: fill, contents: [] }; }
+    borderWidth: '1px', borderColor: c.accent, backgroundColor: fill, contents: [] }; }
   return { type: 'box', layout: 'vertical', width: '32px', height: '32px', flex: 0, cornerRadius: '8px',
-    backgroundColor: '#E8EFE9', action: { type: 'clipboard', label: '複製 Email', clipboardText: email },
-    contents: [sheet(11, 6, '#E8EFE9'), sheet(7, 10, '#FAFBF8')] };
+    backgroundColor: c.soft, action: { type: 'clipboard', label: '複製 Email', clipboardText: email },
+    contents: [sheet(11, 6, c.soft), sheet(7, 10, '#FFFFFF')] };
 }
 
-/** 首頁、文字意圖與「聯繫本人」按鈕共用這張卡片。 */
+/** 首頁、文字意圖與「聯繫本人」按鈕共用這張卡片；配色與名片一致。 */
 function contactMessage_(cfg, prepared) {
-  var contact;
+  var c = CARD_COLORS_, contact;
   try { contact = publicContact_(cfg, prepared); } catch (_) { contact = { email: '', available: false, unavailable: true }; }
-  var contents = [{ type: 'text', text: '聯繫本人', size: 'lg', weight: 'bold', color: '#143D35' },
-    { type: 'text', text: '面試邀約、職缺介紹或合作洽詢，都可以從這裡開始。', size: 'sm', wrap: true, color: '#53635E', margin: 'md' }];
+  var contents = [cardText_('面試邀約、職缺介紹或合作洽詢，都可以從這裡開始。', 'sm', c.ink, false)];
   if (contact.email) {
-    var address = { type: 'text', text: contact.email, size: 'sm', wrap: true, flex: 1, color: '#23735B' };
+    var address = { type: 'text', text: contact.email, size: 'sm', wrap: true, flex: 1, color: c.accent, weight: 'bold' };
     if (contact.available) address.action = { type: 'postback', label: '取得 Email', data: 'contact:email', displayText: '取得 Email' };
-    contents.push({ type: 'box', layout: 'horizontal', alignItems: 'center', spacing: 'sm', margin: 'md',
+    contents.push({ type: 'box', layout: 'horizontal', alignItems: 'center', spacing: 'sm', paddingAll: '10px', cornerRadius: '10px', backgroundColor: c.chip,
       contents: contact.available ? [address, copyEmailIcon_(contact.email)] : [address] });
   }
-  var buttons = [];
-  if (contact.available) {
-    contents.push({ type: 'text', text: '點右側圖示複製信箱；也可點信箱取得純文字，再自行寄信。', size: 'xs', wrap: true, color: '#687770', margin: 'md' });
-  }
-  else contents.push({ type: 'text', text: contact.unavailable ? '目前無法讀取聯絡資料，可先留下邀約。' : '目前尚未提供可收信的 Email，可先留下邀約。', size: 'xs', wrap: true, color: '#687770', margin: 'md' });
-  contents.push({ type: 'text', text: 'LINE 邀約：在這裡填寫，確認送出後由機器人通知本人。', size: 'xs', wrap: true, color: '#687770', margin: 'md' });
+  if (contact.available) contents.push(cardText_('點右側圖示複製信箱，或點信箱取得純文字，再自行寄信。', 'xxs', c.sub, false));
+  else contents.push(cardText_(contact.unavailable ? '目前無法讀取聯絡資料，可先留下邀約。' : '目前尚未提供可收信的 Email，可先留下邀約。', 'xxs', c.sub, false));
+  contents.push({ type: 'separator', color: c.rule });
+  contents.push(cardText_('或直接在 LINE 留邀約：三個問題，送出後由機器人通知本人。剛比對過職缺的話，會一併附上結果。', 'xxs', c.sub, false));
   var invitationButton = contactButton_('在 LINE 留邀約', 'invite:start');
-  invitationButton.style = 'primary'; invitationButton.color = '#23735B';
-  buttons.push(invitationButton, contactButton_('回首頁', 'nav:home'));
-  return { type: 'flex', altText: '聯繫本人｜Email 與留下邀約', quickReply: quickReply_(), contents: { type: 'bubble', size: 'kilo',
-    body: { type: 'box', layout: 'vertical', paddingAll: '20px', contents: contents },
-    footer: { type: 'box', layout: 'vertical', spacing: 'sm', contents: buttons } } };
+  invitationButton.style = 'primary'; invitationButton.color = c.accent;
+  return { type: 'flex', altText: '聯繫本人｜Email 與留下邀約', quickReply: quickReply_(), contents: { type: 'bubble', size: 'mega',
+    header: { type: 'box', layout: 'horizontal', paddingAll: '12px', paddingStart: '16px', backgroundColor: c.accent, contents: [
+      cardText_('CONTACT', 'xxs', '#FFFFFF', false), cardText_('聯繫本人', 'xxs', '#B9C8E6', false, { align: 'end' })
+    ] },
+    body: { type: 'box', layout: 'vertical', paddingAll: '16px', spacing: 'md', backgroundColor: '#FFFFFF', contents: contents },
+    footer: { type: 'box', layout: 'vertical', paddingAll: '12px', paddingTop: '0px', spacing: 'sm', backgroundColor: '#FFFFFF', contents: [invitationButton, contactButton_('回首頁', 'nav:home')] } } };
 }
 
 function invitationKey_(userId, cfg) { return 'invite:' + sha256_(ScriptApp.getScriptId() + ':' + cfg.docId + ':' + userId); }
@@ -83,29 +83,90 @@ function invitationDraft_(key) {
   return value;
 }
 
+/** 邀約三步：公司與稱呼 → 想談什麼（可帶入剛比對的職缺）→ 回覆方式（先選類型再填）。方便時段在確認卡上用按鈕選。 */
 var INVITATION_FIELDS_ = [
   { key: 'company', label: '公司與您的稱呼', prompt: '請輸入公司／單位與您的稱呼。', limit: 120 },
-  { key: 'message', label: '職缺或合作內容', prompt: '請描述想邀約的職缺或合作內容。', limit: 800 },
-  { key: 'replyTo', label: '回覆方式', prompt: '請留下本人可回覆您的方式，例如 Email、電話或 LINE ID。', limit: 200 },
-  { key: 'availability', label: '方便聯繫的時段', prompt: '方便聯繫的時段？不限定可按「略過時段」。', limit: 120 }
+  { key: 'message', label: '想談什麼', prompt: '想邀約的職缺或合作內容？', limit: 800 },
+  { key: 'replyTo', label: '回覆方式', prompt: '本人要怎麼回覆您？先選一種，再填內容。', limit: 200 }
 ];
+/** 通知信、LINE 通知與收件匣顯示的欄位（含時段）。 */
+var INVITATION_SUMMARY_FIELDS_ = INVITATION_FIELDS_.concat([{ key: 'availability', label: '方便聯繫的時段' }]);
+var INVITATION_WHEN_ = ['平日白天', '平日晚上', '假日', '不限'];
+var INVITATION_REPLY_KINDS_ = { email: 'Email', phone: '電話', line: 'LINE ID' };
+
+/** 剛比對過職缺的人資，邀約內容直接帶入職缺與結果摘要，不必重打。 */
+function invitationJobSummary_(userId, cfg) {
+  var state;
+  try { state = jobMatchState_(jobMatchKey_(userId, cfg)); } catch (_) { return null; }
+  if (!state || state.stage !== 'done' || !state.results || !state.fields) return null;
+  var counts = { match: 0, unknown: 0, mismatch: 0 };
+  state.results.forEach(function (item) { counts[item.status]++; });
+  return { title: state.fields.title || '未命名職缺', counts: counts,
+    unknown: state.results.filter(function (i) { return i.status === 'unknown'; }).map(function (i) { return i.label; }).slice(0, 8),
+    mismatch: state.results.filter(function (i) { return i.status === 'mismatch'; }).map(function (i) { return i.label; }).slice(0, 8) };
+}
+function jobSummaryLine_(job) { return job.title + '（比對：符合 ' + job.counts.match + '、待確認 ' + job.counts.unknown + '、不符 ' + job.counts.mismatch + '）'; }
+
+function invitationQuick_(items) {
+  return { items: items.map(function (item) { return { type: 'action', action: { type: 'postback', label: item[0], data: item[1], displayText: item[0] } }; }) };
+}
 
 function invitationPrompt_(draft) {
-  var field = INVITATION_FIELDS_[draft.step], message = textMessage_('留下邀約 ' + (draft.step + 1) + ' / 4\n' + field.prompt +
-    (draft.step === 0 ? '\n\n確認後才會存入履歷主人的私有邀約收件匣，並以 Email 與已設定的 LINE 通知本人；填寫內容不交給 AI。30 分鐘內可繼續，輸入「取消」可離開。' : ''));
-  message.quickReply = { items: [{ type: 'action', action: { type: 'postback', label: '取消邀約', data: 'invite:cancel', displayText: '取消邀約' } }] };
-  if (draft.step === 3) message.quickReply.items.unshift({ type: 'action', action: { type: 'postback', label: '略過時段', data: 'invite:skip:' + draft.id, displayText: '略過時段' } });
+  var field = INVITATION_FIELDS_[draft.step], head = draft.returnTo ? '修改：' : '留下邀約 ' + (draft.step + 1) + ' / ' + INVITATION_FIELDS_.length + '\n';
+  var text = head + field.prompt, quick = [];
+  if (draft.step === 0 && !draft.returnTo) text += '\n\n確認後才會存入履歷主人的私有邀約收件匣，並以 Email 與已設定的 LINE 通知本人；填寫內容不交給 AI。30 分鐘內可繼續，輸入「取消」可離開。';
+  if (draft.step === 1 && draft.jobMatch) { text += '\n剛比對的職缺：' + jobSummaryLine_(draft.jobMatch); quick.push(['就用這個職缺', 'invite:use-job:' + draft.id]); }
+  if (draft.step === 2) {
+    if (draft.replyKind) text = head + '請輸入您的 ' + INVITATION_REPLY_KINDS_[draft.replyKind] + '。';
+    else quick.push(['用 Email', 'invite:reply:email'], ['用電話', 'invite:reply:phone'], ['用 LINE ID', 'invite:reply:line']);
+  }
+  quick.push(['取消邀約', 'invite:cancel']);
+  var message = textMessage_(text); message.quickReply = invitationQuick_(quick);
   return [message];
 }
 
+/** 回覆方式先驗格式：Email 要像信箱、電話要有 8 碼以上數字；沒選類型就自動判斷。 */
+function invitationReplyValue_(kind, value) {
+  value = String(value || '').trim();
+  if (!kind) kind = /@/.test(value) ? 'email' : /^[\d\s()+\-#]{8,}$/.test(value) ? 'phone' : 'line';
+  if (kind === 'email' && !/^[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(value)) return { error: '這看起來不像 Email，請再輸入一次，例如 name@company.com。' };
+  if (kind === 'phone' && (value.replace(/\D/g, '').length < 8)) return { error: '電話請包含至少 8 位數字，可加區碼或分機。' };
+  return { kind: kind, value: value };
+}
+
+/** 確認卡：欄位列表、時段按鈕、送出色塊；每欄可單獨改，不必整份重填。 */
 function invitationConfirmation_(draft) {
-  var lines = INVITATION_FIELDS_.map(function (field) { return field.label + '：' + (draft.fields[field.key] || '不限定'); });
-  var summary = textMessage_('請確認邀約內容\n\n' + lines.join('\n\n') + '\n\n按「確認送出」後，以上資料會存入履歷主人的私有收件匣，並以 Email 與已設定的 LINE 通知本人。這不代表面試或合作已排定。');
-  delete summary.quickReply;
-  return [summary, { type: 'flex', altText: '確認送出邀約，或重新填寫', contents: { type: 'bubble', size: 'kilo',
-    body: { type: 'box', layout: 'vertical', contents: [{ type: 'text', text: '要送出這份邀約嗎？', weight: 'bold', wrap: true }] },
-    footer: { type: 'box', layout: 'vertical', spacing: 'sm', contents: [contactButton_('確認送出', 'invite:submit:' + draft.id),
-      contactButton_('重新填寫', 'invite:restart:' + draft.id), contactButton_('取消邀約', 'invite:cancel')] } } }];
+  var c = CARD_COLORS_, f = draft.fields, rows = [];
+  function key(label) { return { type: 'box', layout: 'vertical', width: '56px', flex: 0, contents: [cardText_(label, 'xxs', c.accent, false)] }; }
+  function row(label, value, edit) {
+    var contents = [key(label), cardText_(value, 'sm', c.ink, false)];
+    if (edit) contents.push({ type: 'box', layout: 'vertical', flex: 0, contents: [cardText_('改', 'xxs', c.accent, false)], action: { type: 'postback', label: '改' + label, data: 'invite:edit:' + edit, displayText: '改' + label } });
+    rows.push({ type: 'box', layout: 'horizontal', spacing: 'md', alignItems: 'flex-start', contents: contents });
+  }
+  row('公司', f.company || '未填', 'company');
+  row('想談', f.message || '未填', 'message');
+  row('回覆', (f.replyKind ? INVITATION_REPLY_KINDS_[f.replyKind] + '：' : '') + (f.replyTo || '未填'), 'replyTo');
+  var when = { type: 'box', layout: 'horizontal', spacing: 'sm', contents: INVITATION_WHEN_.map(function (option) {
+    var active = f.availability === option;
+    return { type: 'box', layout: 'vertical', flex: 1, paddingAll: '6px', cornerRadius: '8px', backgroundColor: active ? c.accent : c.chip,
+      action: { type: 'postback', label: option, data: 'invite:when:' + draft.id + ':' + option, displayText: '方便時段：' + option },
+      contents: [cardText_(option, 'xxs', active ? '#FFFFFF' : c.ink, active, { align: 'center' })] };
+  }) };
+  rows.push({ type: 'box', layout: 'horizontal', spacing: 'md', alignItems: 'center', contents: [key('時段'), when] });
+  if (draft.jobMatch) rows.push(cardText_('會一併告訴本人您比對的職缺與結果：' + jobSummaryLine_(draft.jobMatch), 'xxs', c.sub, false));
+  rows.push(cardText_('送出後會存入履歷主人的私有收件匣，並以 Email 與 LINE 通知本人；這不代表面試或合作已排定。', 'xxs', c.sub, false));
+  var submit = { type: 'box', layout: 'vertical', paddingAll: '12px', cornerRadius: '10px', backgroundColor: c.accent,
+    action: { type: 'postback', label: '送出邀約', data: 'invite:submit:' + draft.id, displayText: '送出邀約' },
+    contents: [cardText_('送出邀約', 'sm', '#FFFFFF', true, { align: 'center' })] };
+  var fallback = '請確認邀約內容\n\n' + INVITATION_SUMMARY_FIELDS_.map(function (field) { return field.label + '：' + (f[field.key] || '不限定'); }).join('\n') + '\n\n輸入「送出邀約」確認，或「取消」離開。';
+  return [{ type: 'flex', altText: '確認邀約內容', fallbackText: fallback, quickReply: invitationQuick_([['送出邀約', 'invite:submit:' + draft.id], ['改公司', 'invite:edit:company'], ['改內容', 'invite:edit:message'], ['改回覆方式', 'invite:edit:replyTo'], ['取消邀約', 'invite:cancel']]),
+    contents: { type: 'bubble', size: 'mega',
+      header: { type: 'box', layout: 'horizontal', paddingAll: '12px', paddingStart: '16px', backgroundColor: c.accent, contents: [
+        cardText_('INVITATION', 'xxs', '#FFFFFF', false), cardText_('確認後送出', 'xxs', '#B9C8E6', false, { align: 'end' })
+      ] },
+      body: { type: 'box', layout: 'vertical', paddingAll: '16px', spacing: 'md', backgroundColor: '#FFFFFF', contents: [cardText_('要送出這份邀約嗎？', 'md', c.ink, true)].concat(rows) },
+      footer: { type: 'box', layout: 'vertical', paddingAll: '12px', paddingTop: '0px', spacing: 'xs', backgroundColor: '#FFFFFF', contents: [submit,
+        { type: 'box', layout: 'horizontal', contents: [linkButton_('重新填寫', 'invite:restart:' + draft.id), linkButton_('取消邀約', 'invite:cancel')] }] } } }];
 }
 
 function invitationReceipt_(record) {
@@ -117,12 +178,22 @@ function invitationReceipt_(record) {
   return [textMessage_('邀約已存入履歷主人的私有收件匣。' + detail + '這不代表面試或合作已排定。')];
 }
 
+/** 人資在留邀約前比對過職缺時，通知裡附上職缺與結果，主人回覆前就知道對方在意什麼。 */
+function jobMatchNoticeText_(record) {
+  var job = record && record.jobMatch;
+  if (!job) return '';
+  return '\n\n對方比對的職缺：\n' + jobSummaryLine_(job) +
+    (job.unknown && job.unknown.length ? '\n待確認：' + job.unknown.join('、') : '') +
+    (job.mismatch && job.mismatch.length ? '\n不符：' + job.mismatch.join('、') : '');
+}
+
 /** 通知信附完整邀約，主人可直接閱讀；只使用純文字，不執行訪客提供的 HTML。 */
 function invitationEmail_(record, recipient) {
   var fields = record.fields;
   var message = { to: recipient, name: 'ResumeRAGbot 邀約通知', subject: '【ResumeRAGbot】收到新的面試／合作邀約',
     body: '有人透過您的履歷機器人留下邀約。\n\n' +
-      INVITATION_FIELDS_.map(function (field) { return field.label + '：\n' + (fields[field.key] || '不限定'); }).join('\n\n') +
+      INVITATION_SUMMARY_FIELDS_.map(function (field) { return field.label + '：\n' + (fields[field.key] || '不限定'); }).join('\n\n') +
+      jobMatchNoticeText_(record) +
       '\n\n收到時間：' + Utilities.formatDate(new Date(record.createdAt), 'Asia/Taipei', 'yyyy-MM-dd HH:mm:ss') + '（台北時間）' +
       '\n邀約編號：' + record.id + '\n\n邀約已保存在您的私人收件匣。請依對方留下的回覆方式聯繫；系統沒有自動安排面試。' };
   // Reply-To 只接受完整、單一的信箱；電話、LINE ID 或混合文字不當作郵件標頭。
@@ -207,21 +278,21 @@ function handleContact_(event, text, cfg, prepared, options) {
       cache.remove(key); props.deleteProperty(pendingKey); draft = null; return remember([textMessage_('已取消填寫，未送出新的邀約。')]);
     }
     if (text === 'invite:start' || text === '留下邀約' || draft && text === 'invite:restart:' + draft.id) {
-      draft = { id: sha256_(Utilities.getUuid()).slice(0, 32), step: 0, fields: {}, expiresAt: Date.now() + 1800000 };
+      draft = { id: sha256_(Utilities.getUuid()).slice(0, 32), step: 0, fields: { availability: '' }, expiresAt: Date.now() + 1800000, jobMatch: invitationJobSummary_(event.source.userId, cfg) };
       props.setProperty(pendingKey, draft.id);
       return remember(invitationPrompt_(draft));
     }
-    var submit = /^invite:submit:([a-f0-9]{32})$/.exec(text);
+    var submit = /^invite:submit:([a-f0-9]{32})$/.exec(text) || (draft && draft.step === 3 && /^送出邀約$/.test(text) ? [text, draft.id] : null);
     if (submit) {
       var store = loadPortfolioStore_(cfg), records = store.invitations || {}, existing = records[submit[1]], visitor = invitationVisitor_(event.source.userId);
       if (existing && existing.visitor === visitor) { props.deleteProperty(pendingKey); return invitationReceipt_(existing); }
-      if (!draft || draft.id !== submit[1] || draft.step !== 4) return [textMessage_('這份確認已過期或已被新的草稿取代。請使用最新確認卡片，或重新選擇「留下邀約」。')];
+      if (!draft || draft.id !== submit[1] || draft.step !== 3) return [textMessage_('這份確認已過期或已被新的草稿取代。請使用最新確認卡片，或重新選擇「留下邀約」。')];
       try {
-        records[draft.id] = { id: draft.id, visitor: visitor, createdAt: new Date().toISOString(), status: 'new', fields: draft.fields };
+        records[draft.id] = { id: draft.id, visitor: visitor, createdAt: new Date().toISOString(), status: 'new', fields: draft.fields, jobMatch: draft.jobMatch || null };
         store.invitations = records;
         // 本函式已持鎖，不再次呼叫會取得同一把鎖的 updatePortfolioStore_。
         savePortfolioStore_(store, cfg);
-      } catch (_) { safeLog_('INVITATION_SAVE_FAILED'); return [textMessage_('邀約尚未保存成功，請稍後再按一次「確認送出」。目前沒有寄出 Email。')].concat(invitationConfirmation_(draft)); }
+      } catch (_) { safeLog_('INVITATION_SAVE_FAILED'); return [textMessage_('邀約尚未保存成功，請稍後再按一次「送出邀約」。目前沒有寄出 Email。')].concat(invitationConfirmation_(draft)); }
       notifyInvitation_(store, records[draft.id], cfg, options);
       notifyInvitationLine_(store, records[draft.id], cfg, options);
       props.deleteProperty(pendingKey);
@@ -230,15 +301,32 @@ function handleContact_(event, text, cfg, prepared, options) {
     }
     // 快取提早清除後，用不含個資的待填旗標攔住下一則訊息，避免誤送 RAG。
     if (!draft && props.getProperty(pendingKey)) { props.deleteProperty(pendingKey); return remember([textMessage_('邀約草稿已過期，剛才的內容沒有交給 AI 或送出。請重新選擇「留下邀約」，或輸入「首頁」離開。')]); }
-    if (draft && draft.step < 4) {
-      var field = INVITATION_FIELDS_[draft.step], value = text;
-      if (text === 'invite:skip:' + draft.id && draft.step === 3) value = '';
-      else if (event.type !== 'message' || !text || /^invite:/.test(text)) return invitationPrompt_(draft);
-      else if (text.length > field.limit) return [textMessage_('這一欄請控制在 ' + field.limit + ' 字內，再傳送一次。')];
-      draft.fields[field.key] = value; draft.step++;
-      return remember(draft.step === 4 ? invitationConfirmation_(draft) : invitationPrompt_(draft));
+    if (draft && draft.step === 3) {
+      var when = new RegExp('^invite:when:' + draft.id + ':(.+)$').exec(text), editKey = /^invite:edit:(company|message|replyTo)$/.exec(text);
+      if (when && INVITATION_WHEN_.indexOf(when[1]) >= 0) { draft.fields.availability = when[1] === '不限' ? '' : when[1]; return remember(invitationConfirmation_(draft)); }
+      if (editKey) {
+        draft.step = INVITATION_FIELDS_.map(function (f) { return f.key; }).indexOf(editKey[1]); draft.returnTo = 3;
+        if (editKey[1] === 'replyTo') draft.replyKind = null;
+        return remember(invitationPrompt_(draft));
+      }
+      return invitationConfirmation_(draft);
     }
-    if (draft && draft.step === 4) return invitationConfirmation_(draft);
+    if (draft && draft.step < 3) {
+      var field = INVITATION_FIELDS_[draft.step], value = text;
+      if (draft.step === 1 && text === 'invite:use-job:' + draft.id && draft.jobMatch) value = '職缺：' + jobSummaryLine_(draft.jobMatch);
+      else if (draft.step === 2 && /^invite:reply:(email|phone|line)$/.test(text)) { draft.replyKind = text.split(':')[2]; return remember(invitationPrompt_(draft)); }
+      else if (event.type !== 'message' || !text || /^invite:/.test(text)) return invitationPrompt_(draft);
+      else if (Array.from(text).length > field.limit) return [textMessage_('這一欄請控制在 ' + field.limit + ' 字內，再傳送一次。')];
+      if (draft.step === 2) {
+        var reply = invitationReplyValue_(draft.replyKind, value);
+        if (reply.error) return [textMessage_(reply.error)];
+        draft.fields.replyKind = reply.kind; value = reply.value;
+      }
+      draft.fields[field.key] = value;
+      if (draft.returnTo) { draft.step = 3; draft.returnTo = null; return remember(invitationConfirmation_(draft)); }
+      draft.step++;
+      return remember(draft.step === 3 ? invitationConfirmation_(draft) : invitationPrompt_(draft));
+    }
     if (/^invite:/.test(text)) return [textMessage_('邀約草稿已失效，請重新選擇「留下邀約」。')];
     if (contactIntent_(text)) return [contactMessage_(cfg, prepared)];
     return null;
@@ -252,7 +340,7 @@ function getInvitations(token) {
   return reviewRpc_(token, function (cfg) {
     var store = loadPortfolioStore_(cfg), records = store.invitations || {};
     return { expiresAt: store.sessions[sha256_(token)].expiresAt, ownerLineConfigured: !!ownerLineUserId_(), invitations: Object.keys(records).map(function (id) {
-      var r = records[id]; return { id: r.id, createdAt: r.createdAt, status: r.status, fields: r.fields,
+      var r = records[id]; return { id: r.id, createdAt: r.createdAt, status: r.status, fields: r.fields, jobMatch: r.jobMatch || null,
         notification: r.notification ? { status: r.notification.status, sentAt: r.notification.sentAt } : null,
         lineNotification: r.lineNotification ? { status: r.lineNotification.status, sentAt: r.lineNotification.sentAt } : null };
     }).sort(function (a, b) { return b.createdAt.localeCompare(a.createdAt); }) };
@@ -296,9 +384,9 @@ function testContactFlow(token) {
       // 固定測試地址只驗證 Email 複製按鈕，沒有寄信，也不寫進 Doc 或實際聯繫卡。
       messages.push(contactMessage_(cfg, { source: { chunks: [{ section: '公開聯絡方式', text: 'Email：contact@resume-rag-bot-demo.org' }] } }));
       messages = messages.concat(step('invite:start', true));
-      step('功能測試／測試聯絡人', false); step('驗證邀約確認與儲存流程。', false); step('test@example.invalid', false);
+      step('功能測試／測試聯絡人', false); step('驗證邀約確認與儲存流程。', false); step('invite:reply:email', true); step('test@example.invalid', false);
       id = invitationDraft_(key).id;
-      messages = messages.concat(step('invite:skip:' + id, true));
+      messages = messages.concat(step('invite:when:' + id + ':平日白天', true));
       if ((loadPortfolioStore_(cfg).invitations || {})[id]) throw new Error('INVITATION_TEST_EARLY_SAVE');
       step('invite:submit:' + id, true); step('invite:submit:' + id, true);
       var stored = (loadPortfolioStore_(cfg).invitations || {})[id];

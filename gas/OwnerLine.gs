@@ -32,9 +32,9 @@ function notifyInvitationLine_(store, record, cfg, options) {
   if (!ownerId) return;
   state.status = 'attempting'; state.retryKey = Utilities.getUuid();
   try { savePortfolioStore_(store, cfg); } catch (_) { state.status = 'not_attempted'; return; }
-  var text = '您收到一份新邀約\n\n' + INVITATION_FIELDS_.map(function (field) {
+  var text = '您收到一份新邀約\n\n' + INVITATION_SUMMARY_FIELDS_.map(function (field) {
     return field.label + '：\n' + (record.fields[field.key] || '不限定');
-  }).join('\n\n') + '\n\n請透過對方留下的回覆方式聯繫。這則通知不代表面試或合作已排定。';
+  }).join('\n\n') + jobMatchNoticeText_(record) + '\n\n請透過對方留下的回覆方式聯繫。這則通知不代表面試或合作已排定。';
   Object.assign(state, sendOwnerLineText_(ownerId, text, cfg, state.retryKey));
   persist();
 }

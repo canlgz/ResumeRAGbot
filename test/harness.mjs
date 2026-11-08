@@ -169,3 +169,20 @@ export function event(text = '選單', id = 'event-1') {
   return { webhookEventId: id, type: 'message', mode: 'active', replyToken: 'reply-' + id,
     source: { type: 'user', userId: 'user-1' }, message: { type: 'text', id: 'msg-' + id, text } };
 }
+
+/** LINE 會整則退回不合規定的 Flex；這裡先在測試裡擋下最常見的幾種錯誤。 */
+export function assertFlexSane(node, path = 'flex') {
+  if (Array.isArray(node)) { node.forEach((child, i) => assertFlexSane(child, path + '[' + i + ']')); return; }
+  if (!node || typeof node !== 'object') return;
+  if (node.type === 'text') {
+    if (!(typeof node.text === 'string' && node.text.length) && !(Array.isArray(node.contents) && node.contents.length)) throw new Error(path + ': text must be non-empty or use spans');
+    for (const key of ['width', 'height', 'backgroundColor', 'cornerRadius', 'paddingAll']) if (key in node) throw new Error(path + ': text has no ' + key);
+    if (typeof node.text === 'string' && node.text.length > 2000) throw new Error(path + ': text too long');
+  }
+  if (node.type === 'span' && !(typeof node.text === 'string' && node.text.length)) throw new Error(path + ': span text must be non-empty');
+  if (node.type === 'box' && !Array.isArray(node.contents)) throw new Error(path + ': box needs contents');
+  if (node.type === 'button' && !(node.action && typeof node.action.label === 'string' && node.action.label.length <= 40)) throw new Error(path + ': button label');
+  if (node.type === 'carousel' && node.contents.length > 12) throw new Error(path + ': carousel too long');
+  if (node.quickReply && node.quickReply.items.length > 13) throw new Error(path + ': quick reply over 13 items');
+  for (const [key, value] of Object.entries(node)) if (value && typeof value === 'object') assertFlexSane(value, path + '.' + key);
+}

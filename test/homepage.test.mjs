@@ -1,35 +1,63 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createGas,event} from './harness.mjs';
+import {createGas,event,assertFlexSane} from './harness.mjs';
 import {portfolioFixture,paragraph,picture} from './portfolio-fixture.mjs';
 
 function withProfile(){
   const f=portfolioFixture();
-  f.nodes.splice(9,0,paragraph('姓名：陳沐言。職務：AI 工程師。個性：隨和、好相處。工作時先做小範圍原型。Email：muyan.chen@example.invalid。'));
+  f.nodes.splice(9,0,paragraph('姓名：陳沐言。職務：AI 工程師。個性：隨和、好相處。工作時先做小範圍原型。Email：muyan.chen@example.invalid。'),
+    paragraph('學校：青禾應用大學。具備四年三個月的經驗。工作偏好：台北或新北地區。主要使用 Python、SQL。'));
   f.gas.syncKnowledgeBase();
   const idx=f.gas.loadIndex_(f.gas.config_());
-  idx.quickTopics.homeProfile={version:1,name:'陳沐言',role:'AI 工程師',traits:['隨和、好相處','先做小範圍原型'],contacts:['muyan.chen@example.invalid']};
+  idx.quickTopics.homeProfile={version:3,name:'陳沐言',role:'AI 工程師',traits:['隨和、好相處','先做小範圍原型'],contacts:['muyan.chen@example.invalid'],
+    school:'青禾應用大學',years:'四年三個月',skills:['Python','SQL'],tags:{personality:'隨和',region:'台北或新北',specialty:'Python'}};
   f.state.files.get(f.state.properties.get('INDEX_FILE_ID')).content=JSON.stringify(idx);
   return f;
 }
 
-test('three compact home pages use only current public facts and match every quick reply without AI calls',()=>{
+test('the home page is one business card built only from current public facts, with the explore entry and quick replies, without AI calls',()=>{
   const f=withProfile(),before=f.state.calls.length;
+  const idx=f.gas.loadIndex_(f.gas.config_());idx.quickTopics.homeProfile.contacts=['Email：muyan.chen@example.invalid。'];
+  f.state.files.get(f.state.properties.get('INDEX_FILE_ID')).content=JSON.stringify(idx);
   f.gas.handleEvent_(event('首頁','home'),f.gas.config_());
   const calls=f.state.calls.slice(before),messages=calls.find(c=>c.url.endsWith('/message/reply')).body.messages;
   assert.equal(messages.length,1,'homepage should not add an oversized greeting sticker');
-  const home=messages[0];assert.equal(home.contents.type,'carousel');assert.equal(home.contents.contents.length,3);
-  assert(home.contents.contents.every(c=>c.size==='kilo'));
-  assert.match(JSON.stringify(home.contents.contents[0]),/陳沐言/);assert.match(JSON.stringify(home.contents.contents[0]),/muyan.chen@example.invalid/);
-  assert.match(JSON.stringify(home.contents.contents[1]),/先做小範圍原型/);
-  assert.deepEqual(home.contents.contents[2].body.contents.slice(2).flatMap(r=>r.contents.map(c=>c.action)),home.quickReply.items.map(i=>i.action));
+  const home=messages[0],json=JSON.stringify(home);assertFlexSane(messages);assert.equal(home.contents.type,'bubble');assert.equal(home.contents.size,'mega');
+  for(const text of ['陳沐言','AI 工程師','青禾應用大學','"text":"muyan.chen@example.invalid"','四年三個月','隨和','台北或新北','Python'])assert(json.includes(text),text);
+  assert.equal(home.contents.footer.contents[0].action.data,'nav:explore');assert.equal(home.contents.footer.contents[0].contents[0].text,'想了解這個人');
+  assert.deepEqual([...home.quickReply.items.map(i=>i.action.label)],['名片','個人特質','專業技能','工作經歷','專案','其他','貼職缺比對']);
   assert(!calls.some(c=>c.url.includes('generativelanguage')));
+});
+
+test('the explore menu lists five entries with icon images and hints from the resume, and each entry routes to resume Q&A',()=>{
+  const f=withProfile(),cfg=f.gas.config_(),before=f.state.calls.length;
+  f.gas.handleEvent_({...event('','explore'),type:'postback',postback:{data:'nav:explore'}},cfg);
+  const calls=f.state.calls.slice(before),menu=calls.find(c=>c.url.endsWith('/message/reply')).body.messages[0];assertFlexSane(menu);
+  const rows=menu.contents.body.contents.filter(r=>r.type==='box');
+  assert.deepEqual(rows.map(r=>r.action.data),['個人特質','專業技能','工作經歷','專案作品','其他']);
+  assert.deepEqual(rows.map(r=>r.contents[0].contents[0].url),['traits','skills','experience','projects','more'].map(n=>cfg.iconBaseUrl+n+'.png'));
+  assert.match(JSON.stringify(rows[0]),/隨和、好相處/);assert(!JSON.stringify(rows[3]).includes('：'),'project hints must not carry the category prefix');assert.match(JSON.stringify(rows[1]),/Python、SQL/);assert.match(JSON.stringify(rows[2]),/四年三個月/);
+  assert.equal(menu.contents.footer.contents[0].action.data,'nav:home');
+  assert(!calls.some(c=>c.url.includes('generativelanguage')));
+  const start=f.state.calls.length;f.gas.handleEvent_({...event('','explore-2'),type:'postback',postback:{data:'個人特質'}},cfg);
+  assert(f.state.calls.slice(start).some(c=>c.url.endsWith(':generateContent')),'entries should run the resume Q&A');
+});
+
+test('business card fields are only accepted when they are literal public text and the personality tag is never inferred',()=>{
+  const {gas}=createGas();
+  const p=gas.validateHomeProfile_({school:'假的大學',years:'四年三個月',skills:['Python','不存在的工具'],tags:{personality:'積極熱情',region:'台北或新北',specialty:'自動化'}},
+    [{text:'學校：青禾應用大學。\n具備四年三個月的經驗。\n工作偏好：台北或新北地區。\n擅長 Python 與自動化。'},{imageKey:'ocr',text:'積極熱情 假的大學'}]);
+  assert.equal(p.version,3);assert.equal(p.school,'青禾應用大學');assert.equal(p.years,'四年三個月');assert.deepEqual([...p.skills],['Python']);
+  assert.deepEqual({...p.tags},{personality:'',region:'台北或新北',specialty:'自動化'});
+  const q=gas.validateHomeProfile_({skills:['Python']},[{text:'個性：隨和、好相處。\n學歷：國立測試大學 資訊系，學士。\n工作偏好：台北或新北地區，可接受混合辦公。\n主要使用 Python。'}]);
+  assert.equal(q.tags.personality,'隨和、好相處');assert.equal(q.school,'國立測試大學 資訊系，學士');
+  assert.equal(q.tags.region,'台北或新北');assert.equal(q.tags.specialty,'Python');
 });
 
 test('homepage does not repeat deleted data or extract traits from OCR',()=>{
   const f=withProfile(),idx=f.gas.loadIndex_(f.gas.config_());
   const home=f.gas.welcomeMessage_(f.gas.config_(),{index:idx,source:{fingerprint:'changed'}});
-  assert(!JSON.stringify(home).includes('陳沐言'));assert(!JSON.stringify(home).includes('muyan.chen'));
+  assert(!JSON.stringify(home).includes('陳沐言'));assert(!JSON.stringify(home).includes('muyan.chen'));assert(!JSON.stringify(home).includes('青禾'));
   const profile=f.gas.validateHomeProfile_({name:'假的姓名',traits:['看起來很有耐心'],contacts:['private@example.com']},[{text:'姓名：公開名稱。'},{imageKey:'ocr',text:'看起來很有耐心 private@example.com'}]);
   assert.equal(profile.name,'');assert.equal(profile.traits.length,0);assert.equal(profile.contacts.length,0);
 });
@@ -74,22 +102,22 @@ test('missing portrait uses a self-contained geometric person and never changes 
  const f=withProfile(),writes=f.state.documentWrites,before=f.state.calls.length;
  f.gas.handleEvent_(event('首頁','no-portrait'),f.gas.config_());
  const calls=f.state.calls.slice(before),home=calls.find(c=>c.url.endsWith('/message/reply')).body.messages[0];
- const avatar=home.contents.contents[0].body.contents[0];
+ const avatar=home.contents.body.contents[0].contents[0];
  assert.deepEqual(JSON.parse(JSON.stringify(avatar)),JSON.parse(JSON.stringify(f.gas.friendlyAvatar_())));
  assert(!JSON.stringify(avatar).includes('url'));assert(!JSON.stringify(avatar).includes('text'));
  assert.equal(f.state.documentWrites,writes);assert(!calls.some(c=>c.url.includes('generativelanguage')||c.url.includes('/content')));
 });
 
-test('home aliases and the persistent card button can reopen all three cards repeatedly after an existing conversation',()=>{
+test('home aliases and the menu back link can reopen the business card repeatedly after an existing conversation',()=>{
  const f=withProfile(),idx=f.gas.loadIndex_(f.gas.config_());
  f.gas.saveConversation_('user-1',idx.fingerprint,{question:'先前詢問的作品',focus:idx.imageSources[0].imageKey},[idx.imageSources[0].imageKey],Date.now());
- const cases=['首頁','選單','回首頁','履歷首頁','home','menu','nav:home'];
+ const cases=['首頁','選單','回首頁','履歷首頁','名片','home','menu','nav:home'];
  for(const [i,label] of cases.entries()){
   const before=f.state.calls.length;
   const e=label==='nav:home'?{...event('',String(i)),type:'postback',postback:{data:label}}:event(label,String(i));
   f.gas.handleEvent_(e,f.gas.config_());
   const calls=f.state.calls.slice(before),home=calls.find(c=>c.url.endsWith('/message/reply')).body.messages[0];
-  assert.equal(home.contents.contents.length,3);assert.equal(home.contents.contents[2].footer.contents[0].action.data,'nav:home');
+  assert.equal(home.contents.type,'bubble');assert.equal(home.contents.footer.contents[0].action.data,'nav:explore');
   assert(!calls.some(c=>c.url.includes('generativelanguage')));
  }
  assert.equal(f.state.documentWrites,0);

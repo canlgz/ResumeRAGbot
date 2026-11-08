@@ -129,6 +129,7 @@
       const lineStatus={sent:'LINE 已接受推播（不代表已讀）',not_configured:'LINE 未設定收件人',not_attempted:'LINE 未送出：無法保存通知狀態',attempting:'LINE 通知結果待確認',delivery_unknown:'LINE 通知結果待確認',quota_or_rate_limit:'LINE 未送出：額度或速率限制',rejected:'LINE 拒絕推播，請檢查收件人與頻道設定',test_skipped:'測試記錄：未推播'};
       if(item.lineNotification)card.append(el('p',lineStatus[item.lineNotification.status]||'LINE 通知狀態待確認','hint'));
       [['message','職缺或合作內容'],['replyTo','回覆方式'],['availability','方便聯繫的時段']].forEach(([key,label])=>{card.append(el('h3',label),el('pre',item.fields[key]||'不限定'));});
+      if(item.jobMatch){const j=item.jobMatch;card.append(el('h3','對方比對的職缺'),el('pre',j.title+'（符合 '+j.counts.match+'、待確認 '+j.counts.unknown+'、不符 '+j.counts.mismatch+'）'+(j.unknown?.length?'\n待確認：'+j.unknown.join('、'):'')+(j.mismatch?.length?'\n不符：'+j.mismatch.join('、'):'')));}
       const actions=el('div',undefined,'actions'),handled=el('button',item.status==='handled'?'標為待處理':'標為已處理'),remove=el('button','刪除邀約');
       handled.onclick=()=>run(async()=>{await rpc('updateInvitation',item.id,item.status==='handled'?'new':'handled');await loadInvitations();});
       remove.onclick=()=>run(async()=>{if(!window.confirm('確定刪除這份邀約及聯絡資料？'))return;await rpc('updateInvitation',item.id,'delete');await loadInvitations();});

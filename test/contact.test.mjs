@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createGas,event} from './harness.mjs';
+import {createGas,event,assertFlexSane} from './harness.mjs';
 const publicDoc='[[PUBLIC]]\n## 個人介紹\n姓名：測試履歷。\n## 公開聯絡方式\nEmail：resume@company.tw\n[[/PUBLIC]]\n[[PRIVATE]]\nEmail：secret@private.tw\n[[/PRIVATE]]';
 function setup(){const f=createGas({text:publicDoc});let n=0;const send=(text,user='user-1',post=false,id)=>{const e=event(text,id||'contact-'+(++n));e.source.userId=user;if(post){e.type='postback';e.postback={data:text};}f.gas.handleEvent_(e,f.gas.config_());return f.state.calls.filter(c=>c.url.endsWith('/message/reply')).at(-1).body.messages;};return {...f,send};}
 const draft=(f,user='user-1')=>f.gas.invitationDraft_(f.gas.invitationKey_(user,f.gas.config_()));
-function fill(f,user='user-1'){f.send('invite:start',user,true);f.send('青禾公司／王小姐',user);f.send('邀請面試 AI 工程師',user);f.send('hr@company.tw',user);f.send('invite:skip:'+draft(f,user).id,user,true);return draft(f,user).id;}
+function fill(f,user='user-1'){f.send('invite:start',user,true);f.send('青禾公司／王小姐',user);f.send('邀請面試 AI 工程師',user);const card=f.send('hr@company.tw',user);assertFlexSane(card);return draft(f,user).id;}
 const records=f=>f.gas.loadPortfolioStore_(f.gas.config_()).invitations||{};
 
 test('contact button reads current PUBLIC Doc email without an index or AI; removed/private emails never persist',()=>{
@@ -20,8 +20,8 @@ test('intent distinguishes invitations from questions about previous collaborati
  assert(!gas.usableEmail_('test@example.invalid'));assert(!gas.usableEmail_('a@example.com'));assert(gas.usableEmail_('resume@company.tw'));
 });
 
-test('drafts stay private until confirmation, skip works, and repeated confirmation creates exactly one record',()=>{
- const f=setup(),id=fill(f);assert.equal(Object.keys(records(f)).length,0);assert.equal(draft(f).step,4);
+test('drafts stay private until confirmation, availability is optional, and repeated confirmation creates exactly one record',()=>{
+ const f=setup(),id=fill(f);assert.equal(Object.keys(records(f)).length,0);assert.equal(draft(f).step,3);assert.equal(draft(f).fields.replyKind,'email');
  let reply=f.send('invite:submit:'+id,'user-1',true);assert.match(reply[0].text,/已存入/);assert.equal(Object.keys(records(f)).length,1);
  assert.equal(records(f)[id].fields.availability,'');assert.equal(records(f)[id].fields.replyTo,'hr@company.tw');
  f.send('invite:submit:'+id,'user-1',true);assert.equal(Object.keys(records(f)).length,1);
@@ -49,7 +49,7 @@ test('a failed LINE reply replay does not consume the input as the next field',(
 
 test('save failure keeps the confirmation draft and does not claim success; retry can persist',()=>{
  const f=setup();f.gas.updatePortfolioStore_(f.gas.config_(),()=>{});const id=fill(f),file=f.state.files.get(f.state.properties.get('PORTFOLIO_STORE_FILE_ID')),save=file.setContent;
- file.setContent=()=>{throw new Error('disk unavailable');};const reply=f.send('invite:submit:'+id,'user-1',true);assert.match(reply[0].text,/尚未保存成功/);assert.equal(draft(f).step,4);assert.equal(Object.keys(records(f)).length,0);
+ file.setContent=()=>{throw new Error('disk unavailable');};const reply=f.send('invite:submit:'+id,'user-1',true);assert.match(reply[0].text,/尚未保存成功/);assert.equal(draft(f).step,3);assert.equal(Object.keys(records(f)).length,0);
  file.setContent=save;f.send('invite:submit:'+id,'user-1',true);assert.equal(Object.keys(records(f)).length,1);
 });
 
@@ -180,4 +180,35 @@ test('contact email uses a compact adjacent copy icon and preserves plain-text f
  assert.equal(f.send('contact:email','user-1',true)[0].text,'resume@company.tw');
  f.state.text=publicDoc.replace('resume@company.tw','sample@example.invalid');const unavailable=f.send('聯繫本人')[0];
  assert(!JSON.stringify(unavailable).includes('"clipboard"'));assert(!JSON.stringify(unavailable).includes('"contact:email"'));
+});
+
+test('three-step draft: reply kind buttons validate input, each field can be edited from the card, and availability is picked on the card',()=>{
+ const f=setup();f.send('invite:start','user-1',true);
+ let msgs=f.send('青禾公司／王小姐');assert.match(msgs[0].text,/2 \/ 3/);
+ f.send('邀請面試 AI 工程師');msgs=f.send('invite:reply:email','user-1',true);assert.match(msgs[0].text,/請輸入您的 Email/);
+ msgs=f.send('不是信箱');assert.match(msgs[0].text,/不像 Email/);assert.equal(draft(f).step,2);
+ msgs=f.send('hr@company.tw');assertFlexSane(msgs);assert.equal(msgs[0].type,'flex');assert.match(JSON.stringify(msgs[0]),/青禾公司／王小姐/);
+ const id=draft(f).id;
+ msgs=f.send('invite:when:'+id+':平日晚上','user-1',true);assert.equal(draft(f).fields.availability,'平日晚上');assert.equal(msgs[0].type,'flex');
+ msgs=f.send('invite:edit:company','user-1',true);assert.match(msgs[0].text,/修改：/);
+ msgs=f.send('新公司／李先生');assert.equal(msgs[0].type,'flex');assert.equal(draft(f).step,3);assert.equal(draft(f).fields.company,'新公司／李先生');
+ msgs=f.send('invite:edit:replyTo','user-1',true);f.send('invite:reply:phone','user-1',true);msgs=f.send('0912');assert.match(msgs[0].text,/8 位數字/);
+ f.send('0912-345-678');assert.equal(draft(f).fields.replyKind,'phone');assert.equal(draft(f).fields.replyTo,'0912-345-678');
+ f.send('送出邀約');const record=Object.values(records(f))[0];assert.equal(record.fields.availability,'平日晚上');assert.equal(record.fields.company,'新公司／李先生');
+ assert.match(f.state.emails.at(-1).body,/方便聯繫的時段：\n平日晚上/);
+});
+
+test('an invitation started right after a job match carries the job summary to the owner, and nothing else leaks',()=>{
+ const f=setup(),cfg=f.gas.config_();
+ const key=f.gas.jobMatchKey_('user-1',cfg);
+ f.state.cache.set(key,JSON.stringify({id:'a'.repeat(32),stage:'done',fingerprint:'x',expiresAt:Date.now()+600000,fields:{title:'AI 應用工程師'},
+  results:[{label:'Python',status:'match'},{label:'SQL',status:'unknown'},{label:'高雄',status:'mismatch'}]}));
+ f.send('invite:start','user-1',true);f.send('青禾公司／王小姐');
+ let msgs=f.send('invite:use-job:'+draft(f).id,'user-1',true);assert.match(msgs[0].text,/3 \/ 3/);
+ assert.match(draft(f).fields.message,/AI 應用工程師（比對：符合 1、待確認 1、不符 1）/);
+ const card=f.send('hr@company.tw');assert.match(JSON.stringify(card[0]),/會一併告訴本人/);
+ f.send('invite:submit:'+draft(f).id,'user-1',true);
+ const record=Object.values(records(f))[0];assert.deepEqual([...record.jobMatch.unknown],['SQL']);assert.deepEqual([...record.jobMatch.mismatch],['高雄']);
+ const mail=f.state.emails.at(-1).body;assert.match(mail,/對方比對的職缺：\nAI 應用工程師（比對：符合 1、待確認 1、不符 1）\n待確認：SQL\n不符：高雄/);
+ assert(!mail.includes('user-1'));
 });

@@ -32,6 +32,8 @@ function config_() {
     dimensions: 768,
     minSimilarity: num('MIN_SIMILARITY', 0.4, 0, 1),
     topK: 5,
+    // 導覽卡小圖示的公開網址；LINE 卡片只能載入 HTTPS 圖片，預設讀專案 GitHub 裡的 web/icons。
+    iconBaseUrl: get('ICON_BASE_URL', 'https://raw.githubusercontent.com/Jie-Ting/ResumeRAGbot/feature/v3-job-match/web/icons/').replace(/\/?$/, '/'),
     enabled: get('BOT_ENABLED', 'true').toLowerCase() === 'true'
   };
 }
@@ -39,7 +41,7 @@ function config_() {
 /**
  * 目前程式版本；發布時須與 package.json、學生安裝包及正式部署一致。
  */
-function appVersion_() { return '2.0.0'; }
+function appVersion_() { return '2.1.0'; }
 
 /**
  * 接受原始文件 ID 或一般 Google Docs 網址，統一取得文件 ID。

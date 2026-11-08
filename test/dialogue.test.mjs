@@ -65,7 +65,7 @@ test('invitation drafting is not intercepted as social chat; only saved receipt 
  assert.deepEqual(stickers(send(f,'留下邀約')),[]);assert.deepEqual(stickers(send(f,'謝謝')),[]);
  assert.deepEqual(stickers(send(f,'想邀請面試工程師')),[]);assert.deepEqual(stickers(send(f,'hr@company.tw')),[]);
  const key=f.gas.invitationKey_('visitor-a',f.gas.config_()),id=f.gas.invitationDraft_(key).id;
- send(f,'週三上午');const record=f.gas.invitationDraft_(key);assert.equal(record.fields.company,'謝謝');assert.equal(record.step,4);
+ assert.deepEqual(stickers(send(f,'週三上午')),[]);const record=f.gas.invitationDraft_(key);assert.equal(record.fields.company,'謝謝');assert.equal(record.step,3);
  assert.deepEqual(stickers(send(f,'invite:submit:'+id)),['52002740']);assert.deepEqual(stickers(send(f,'invite:submit:'+id)),[]);
  assert.equal(Object.keys(f.gas.loadPortfolioStore_(f.gas.config_()).invitations).length,1);
 });

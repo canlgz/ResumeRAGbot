@@ -130,15 +130,17 @@ function handleEvent_(event, cfg) {
       } catch (_) { MESSAGE_TOPICS_ = []; }
     }
     if (!cfg.enabled) messages = [textMessage_('履歷助理目前暫停服務，請稍後再試。')];
+    else if ((messages = handleJobMatch_(event, text, cfg, prepared))) { /* 職缺比對有自己的流程，長職缺不受 800 字限制。 */ }
     else if ((messages = handleContact_(event, text, cfg, prepared))) { /* 聯繫與邀約不經 RAG。 */ }
     else if (/^(清除對話|重新開始|reset)$/i.test(text)) {
       clearConversation_(event.source.userId);
       CacheService.getScriptCache().remove(stickerHistoryKey_(event.source.userId));
       messages = [textMessage_('短期對話記憶已清除，現在可以開始新的問題。')];
     }
-    else if (event.type === 'follow' || /^(選單|首頁|回首頁|履歷首頁|menu|home|開始|nav:home)$/i.test(text)) {
+    else if (event.type === 'follow' || /^(選單|首頁|回首頁|履歷首頁|名片|menu|home|開始|nav:home)$/i.test(text)) {
       messages = [welcomeMessage_(cfg, prepared)];
     }
+    else if (/^nav:explore$/i.test(text)) messages = [exploreMenu_(cfg, prepared)];
     else if (/^(使用說明|說明|help)$/i.test(text)) messages = [textMessage_(helpText_())];
     else if (/^(隱私|privacy)$/i.test(text)) messages = [textMessage_(privacyText_())];
     else if (event.type === 'postback' && text.indexOf('evidence:') === 0) {
@@ -156,6 +158,8 @@ function handleEvent_(event, cfg) {
         '專業技能': '有哪些專業技能？請用履歷中的經驗或作品舉例。',
         '工作經歷': '請整理主要工作經歷、職務和具體成果。',
         '專案作品': '有哪些代表專案？請說明問題、本人負責內容、技術與成果。',
+        '個人特質': '請介紹這位求職者的個人特質與工作方式，只引用履歷明確寫到的描述。',
+        '其他': '請整理履歷中的學歷、語言能力、證照與其他補充資訊；沒有記載的項目請說明未提供。',
         '聯絡方式': '履歷提供哪些公開聯絡方式與作品連結？請保留原文。'
       };
       startLoading_(event.source.userId, cfg);
