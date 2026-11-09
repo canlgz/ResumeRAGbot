@@ -145,6 +145,19 @@ function handleEvent_(event, cfg) {
       // 舊訊息的按鈕無法從 LINE 歷史中移除；僅告知停用，不讀依據或啟動 RAG。
       messages = [textMessage_('「展開答案依據」功能已取消。')];
     }
+    else if (event.type === 'message' && /^(?:職缺對照：|JD：)/i.test(text)) {
+      var jobDescription = text.replace(/^(?:職缺對照：|JD：)\s*/i, '').trim();
+      if (!jobDescription) messages = [textMessage_('請在「職缺對照：」或「JD：」後貼上職缺說明。')];
+      else if (jobDescription.length > 5000) messages = [textMessage_('職缺說明請縮短至 5000 字以內，再重新送出檢核。')];
+      else {
+        startLoading_(event.source.userId, cfg);
+        try { messages = [textMessage_(answerLineJobMatch_(jobDescription, cfg, prepared))]; }
+        catch (error) {
+          safeLog_(errorCode_(error));
+          messages = [textMessage_(ragErrorMessage_(error))];
+        }
+      }
+    }
     else if (event.type === 'message' && (social = socialDialogue_(text, cfg, prepared))) {
       messages = social.messages; dialogueIntent = social.intent;
     }

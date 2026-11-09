@@ -148,6 +148,65 @@ test('RAG starts a loading animation before AI and sends a single reply without 
   assert(!JSON.stringify(Object.fromEntries(state.properties)).includes('user-1'));
 });
 
+test('JD prefixes use requirement extraction and evidence-depth prompts instead of single-question RAG', () => {
+  const resume = '以 Python 與 FastAPI 建置 ETL 微服務，程式碼公開於 GitHub，將報表產製時間縮短 40%。';
+  const { gas, state } = readyRag({ text: '[[PUBLIC]]\n## 專案作品\n' + resume + '\n[[/PUBLIC]]', response: call => {
+    if (call.url.endsWith(':batchEmbedContents')) return { body: {
+      embeddings: call.body.requests.map(() => ({ values: unitVector() }))
+    } };
+    if (call.url.endsWith(':generateContent')) {
+      const schema = call.body.generationConfig.responseSchema.properties;
+      const parsed = JSON.parse(call.body.contents[0].parts[0].text);
+      if (schema.requirements) return { body: { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({
+        requirements: ['Python 服務架構', 'GitHub 專案實作', '量化效能改善']
+      }) }] } }] } };
+      if (schema.items) return { body: { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({ items: parsed.requirements.map((requirement, index) => ({
+        requirement, status: 'pass', summary: '履歷記載具體實作成果。',
+        proofType: ['architecture', 'github', 'metric'][index], quote: resume, section: '專案作品', questions: []
+      })) }) }] } }] } };
+    }
+    return ragResponse(call);
+  } });
+  gas.doPost(input([event('JD：需要 Python、API 設計與效能優化經驗', 'jd-match')]));
+  const aiCalls = state.calls.filter(call => call.url.includes('generativelanguage.googleapis.com'));
+  const reply = state.calls.find(call => call.url.endsWith('/message/reply'));
+  assert.equal(aiCalls.filter(call => call.url.endsWith(':generateContent')).length, 2);
+  assert.equal(aiCalls.filter(call => call.url.endsWith(':embedContent')).length, 0);
+  assert.equal(aiCalls.filter(call => call.url.endsWith(':batchEmbedContents')).length, 1);
+  assert.deepEqual(aiCalls.filter(call => call.url.endsWith(':batchEmbedContents'))[0].body.requests.map(request => request.content.parts[0].text),
+    ['Python 服務架構', 'GitHub 專案實作', '量化效能改善']);
+  assert.match(reply.body.messages[0].text, /履歷含水量檢測｜通過 3 \/ 3/);
+  assert.match(reply.body.messages[0].text, /通過｜低含水/);
+  assert.match(aiCalls.filter(call => call.url.endsWith(':generateContent'))[1].body.systemInstruction.parts[0].text, /面試情境追問/);
+});
+
+test('JD check marks unsupported evidence as confirm and includes an interview follow-up', () => {
+  const { gas, state } = readyRag({ response: call => {
+    if (call.url.endsWith(':batchEmbedContents')) return { body: {
+      embeddings: call.body.requests.map(() => ({ values: unitVector() }))
+    } };
+    if (call.url.endsWith(':generateContent')) {
+      const schema = call.body.generationConfig.responseSchema.properties;
+      if (schema.requirements) return { body: { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({
+        requirements: ['資料分析能力', 'Python 實作經驗', '成果量化能力']
+      }) }] } }] } };
+      return { body: { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({ items: [
+        { requirement: '資料分析能力', status: 'confirm', summary: '履歷僅提到建立資料分析報表，未說明方法與成果。', proofType: 'none', quote: '建立資料分析報表', section: '專案作品', questions: ['請說明你如何清理資料、選擇分析方法，並驗證結果可靠？'] },
+        { requirement: 'Python 實作經驗', status: 'confirm', summary: '未找到具體實作佐證。', proofType: 'none', quote: '', section: '', questions: [] },
+        { requirement: '成果量化能力', status: 'confirm', summary: '未提供量化數據。', proofType: 'none', quote: '', section: '', questions: ['你如何定義並追蹤改善前後的指標？'] }
+      ] }) }] } }] } };
+    }
+    return ragResponse(call);
+  } });
+  gas.doPost(input([event('職缺對照：尋找資料分析人才', 'jd-confirm')]));
+  const reply = state.calls.find(call => call.url.endsWith('/message/reply'));
+  assert.match(reply.body.messages[0].text, /待確認｜含水量高/);
+  assert.match(reply.body.messages[0].text, /面試追問/);
+  assert.match(reply.body.messages[0].text, /清理資料、選擇分析方法/);
+  assert.match(reply.body.messages[0].text, /履歷線索：建立資料分析報表（專案作品）/);
+  assert.match(reply.body.messages[0].text, /驗證方式與可量化結果/);
+});
+
 test('loading HTTP or network failure does not prevent the RAG answer or expose error payloads', () => {
   for (const failure of ['http', 'network']) {
     const { gas, state } = readyRag();
