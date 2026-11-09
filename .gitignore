@@ -12,3 +12,9 @@ docs/交付狀態.md
 local/
 *.log
 .DS_Store
+
+# Spectra 本機狀態（快照、鎖、向量索引）與 Claude Code 本機檔案
+.spectra/
+docs/spectra/.vector-search.db*
+.claude/worktrees/
+.claude/settings.local.json

@@ -131,6 +131,7 @@ function handleEvent_(event, cfg) {
     }
     if (!cfg.enabled) messages = [textMessage_('履歷助理目前暫停服務，請稍後再試。')];
     else if ((messages = handleContact_(event, text, cfg, prepared))) { /* 聯繫與邀約不經 RAG。 */ }
+    else if ((messages = handleHrReview_(event, text, cfg, prepared))) { /* 人資模式：三題後產生證據熱圖，不寫入短期記憶。 */ }
     else if (/^(清除對話|重新開始|reset)$/i.test(text)) {
       clearConversation_(event.source.userId);
       CacheService.getScriptCache().remove(stickerHistoryKey_(event.source.userId));
