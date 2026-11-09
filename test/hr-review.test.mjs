@@ -54,7 +54,7 @@ test('Start from Quick Reply shows step 1 of 3 with notices; text 人資 also st
   const [prompt] = f.send('hr:start', true);
   assert.match(prompt.text, /人資模式 1 \/ 3/);
   for (const notice of [/不是錄取分數/, /Gemini/, /30 分鐘/, /取消/]) assert.match(prompt.text, notice);
-  assert.deepEqual(prompt.quickReply.items.map(i => i.action.data), ['hr:cancel']);
+  assert.deepEqual(prompt.quickReply.items.map(i => i.action.data), ['hr:timeline', 'hr:star', 'hr:cancel']);
   const g = setup();
   assert.match(g.send('人資')[0].text, /人資模式 1 \/ 3/);
 });
@@ -246,10 +246,10 @@ test('Privacy text explains the difference between HR mode and invitations', () 
   assert.match(f.send('使用說明')[0].text, /人資模式/);
 });
 
-test('Deployment check after upgrade reports 3.1.0 on both sides and keeps a v2 index ready', () => {
+test('Deployment check after upgrade reports 3.2.0 on both sides and keeps a v2 index ready', () => {
   const publicUrl = 'https://script.google.com/macros/s/student-v3/exec';
   const f = setup();
-  assert.equal(f.gas.appVersion_(), "3.1.0");
+  assert.equal(f.gas.appVersion_(), "3.2.0");
   const file = f.state.files.get(f.state.properties.get('INDEX_FILE_ID'));
   const idx = JSON.parse(file.content); idx.builtWithAppVersion = '2.0.0'; file.content = JSON.stringify(idx);
   const previous = f.state.response;
@@ -257,8 +257,8 @@ test('Deployment check after upgrade reports 3.1.0 on both sides and keeps a v2 
   f.state.properties.set('WEB_APP_URL', publicUrl);
   const result = f.gas.checkDeployment();
   assert.equal(result.status, 'ready');
-  assert.equal(result.editorVersion, '3.1.0');
-  assert.equal(result.webAppVersion, '3.1.0');
+  assert.equal(result.editorVersion, '3.2.0');
+  assert.equal(result.webAppVersion, '3.2.0');
   assert.equal(f.gas.checkSetup().index, 'ready');
 });
 

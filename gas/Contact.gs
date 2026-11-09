@@ -203,7 +203,7 @@ function handleContact_(event, text, cfg, prepared, options) {
   // 同一時間只保留一份草稿：人資指令結束未完成的邀約，交給人資流程。
   // 「帶入邀約」由人資流程建立新的邀約草稿；LINE 重送同一事件時不能把它清掉。
   if (/^hr:invite:/.test(text)) return null;
-  if (/^hr:/.test(text) || /^(?:人資|人資模式)$/.test(text)) { cache.remove(key); props.deleteProperty(pendingKey); return null; }
+  if (/^hr:/.test(text) || /^(?:人資|人資模式|經歷時間軸|時間軸|成果拆解)$/.test(text)) { cache.remove(key); props.deleteProperty(pendingKey); return null; }
   // 人資草稿進行中，只有明確的聯繫指令由本流程處理（並結束人資草稿）；「取消」與作答文字交給人資流程。
   // 舊邀約訊息上的 invite: 按鈕也屬於邀約流程，不能落到 RAG 被當成問題送給 AI。
   if (hrReviewActive_(event.source.userId, cfg)) {

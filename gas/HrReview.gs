@@ -4,6 +4,7 @@
  * 人資填寫的內容會交給 Gemini 分析，但只存在快取，不寫入 Doc、收件匣、索引或執行記錄。
  * 熱圖只表示公開履歷中的證據強度，不是錄取分數；每個有色格子都必須通過原文核對。
  * v3.1 延伸：貼職缺說明由 AI 拆出需求（逐項核對原文）、確認卡可刪改、逐項對照、結果帶入邀約。
+ * v3.2 延伸：經歷時間軸與成果拆解（HrInsights.gs，不建立草稿），以及對照完成後的「轉給主管」摘要。
  */
 
 var HR_REVIEW_FIELDS_ = [
@@ -98,11 +99,13 @@ function hrPrompt_(draft, notice) {
   var current = draft.editing && draft.step > 0 && draft.fields[field.key];
   var message = textMessage_(head + '人資模式 ' + (draft.step + 1) + ' / 3\n' + field.prompt + (draft.step === 0 ?
     '\n\n完成三題後，我會依公開履歷整理「技能 × 需求」證據熱圖、待確認條件與面談問題。' + HR_DISCLAIMER_ +
-    '\n你填寫的內容會交給 Google Gemini 分析，不寫入履歷或收件匣；草稿 30 分鐘內有效，輸入「取消」可離開。' : '') +
+    '\n你填寫的內容會交給 Google Gemini 分析，不寫入履歷或收件匣；草稿 30 分鐘內有效，輸入「取消」可離開。' +
+    '\n\n不填職缺條件也可以先看「經歷時間軸」或「成果拆解」。' : '') +
     (draft.step === 1 && !draft.editing ? '\n\n手邊有整份職缺說明？可按「貼職缺說明」，由 AI 先拆出需求再讓你確認。' : '') +
     (current ? '\n\n目前內容：\n' + current + '\n\n請傳送修改後的完整內容，或按「沿用目前」。' : ''));
   var items = [];
   if (current) items.push(['沿用目前', 'hr:keep:' + draft.id]);
+  if (draft.step === 0) items.push(['經歷時間軸', 'hr:timeline'], ['成果拆解', 'hr:star']);
   if (draft.step === 1) items.push(['貼職缺說明', 'hr:jd:' + draft.id]);
   if (draft.step === 2) items.push(['略過', 'hr:skip:' + draft.id]);
   items.push(['取消', 'hr:cancel']);
@@ -157,6 +160,9 @@ function handleHrReview_(event, text, cfg, prepared) {
     if (props.getProperty(pendingKey) || cache.get(key)) clearHrReview_(userId, cfg);
     return null;
   }
+  // 時間軸與成果拆解不使用草稿，不影響進行中的人資對照。
+  var insight = handleHrInsight_(event, text, cfg, prepared);
+  if (insight) return insight;
   var start = text === 'hr:start' || /^(?:人資|人資模式)$/.test(text);
   if (!start && !/^hr:/.test(text) && !props.getProperty(pendingKey)) return null;
   var eventId = eventKey_(event), outcomeKey = key + ':' + eventId, draft, job = null;
@@ -187,6 +193,14 @@ function handleHrReview_(event, text, cfg, prepared) {
       var carried = startCarriedInvitation_(userId, cfg, hrCarryText_(draft.carry));
       cache.remove(key); props.deleteProperty(pendingKey); draft = null;
       return remember(carried);
+    }
+    var forward = /^hr:forward:([a-f0-9]{32})$/.exec(text);
+    if (forward) {
+      if (!draft || draft.id !== forward[1] || draft.step !== 4 || !draft.forward) {
+        return [textMessage_('這份人資對照結果已過期。可以重新進行「人資模式」。')];
+      }
+      // 不清除草稿：轉給主管之後仍可「帶入邀約」。
+      return remember([textMessage_('以下摘要可長按複製，轉傳給用人主管：'), textMessage_(draft.forward)]);
     }
     if (!draft && props.getProperty(pendingKey)) {
       props.deleteProperty(pendingKey);
@@ -265,7 +279,7 @@ function handleHrReview_(event, text, cfg, prepared) {
       }
     } else if (result.completed) {
       draft.step = 4; draft.fields = {}; delete draft.extracted;
-      draft.carry = result.carry; props.deleteProperty(pendingKey);
+      draft.carry = result.carry; draft.forward = result.forward; props.deleteProperty(pendingKey);
     }
     return hrRemember_(key, outcomeKey, eventId, draft, messages);
   } finally { lock.releaseLock(); }
@@ -377,7 +391,7 @@ function runHrReview_(draft, cfg, prepared, userId, deep) {
     validateHrReview_({ skills: [], cells: [], pending: [], interviewQuestions: [] }, requirements, hits);
   // 生成期間可能有人改文件，送出前再核對一次。
   if (readPublicSource_(cfg).fingerprint !== index.fingerprint) return waiting;
-  return { completed: true, carry: { role: role, pending: review.pending.slice(0, 8) },
+  return { completed: true, carry: { role: role, pending: review.pending.slice(0, 8) }, forward: hrForwardText_(role, requirements, review),
     messages: hrReviewMessages_(role, requirements, review, { id: draft.id, perItem: perItem }) };
 }
 
@@ -509,7 +523,7 @@ function hrHeatmapMessage_(role, requirements, review) {
 
 /**
  * 回覆最多 4 則：摘要、熱圖、待確認與面談問題、資料來源。
- * options.id 存在時，待確認訊息的 Quick Reply 最前面加「帶入邀約」。
+ * options.id 存在時，待確認訊息的 Quick Reply 最前面加「帶入邀約」「轉給主管」。
  */
 function hrReviewMessages_(role, requirements, review, options) {
   options = options || {};
@@ -521,9 +535,12 @@ function hrReviewMessages_(role, requirements, review, options) {
   if (heatmap) messages.push(heatmap);
   var detail = '待確認條件：\n' + (review.pending.length ? review.pending.map(function (p) { return '• ' + p; }).join('\n') : '無，所有需求都找到履歷依據。');
   if (review.interviewQuestions.length) detail += '\n\n建議面談問題：\n' + review.interviewQuestions.map(function (q, i) { return (i + 1) + '. ' + q; }).join('\n');
-  if (options.id) detail += '\n\n想請本人直接說明？按「帶入邀約」，職位與待確認條件會帶進 LINE 邀約，確認送出後才通知本人。';
+  if (options.id) detail += '\n\n想請本人直接說明？按「帶入邀約」，職位與待確認條件會帶進 LINE 邀約，確認送出後才通知本人。' +
+    '\n要給用人主管？按「轉給主管」取得 300 字內、可直接複製轉傳的摘要。';
   var detailMessage = textMessage_(detail);
-  if (options.id) detailMessage.quickReply.items.unshift({ type: 'action', action: { type: 'postback', label: '帶入邀約', data: 'hr:invite:' + options.id, displayText: '帶入邀約' } });
+  if (options.id) detailMessage.quickReply.items.unshift(
+    { type: 'action', action: { type: 'postback', label: '帶入邀約', data: 'hr:invite:' + options.id, displayText: '帶入邀約' } },
+    { type: 'action', action: { type: 'postback', label: '轉給主管', data: 'hr:forward:' + options.id, displayText: '轉給主管' } });
   messages.push(detailMessage);
   if (heatmap && review.sections.length) messages.push(textMessage_('資料來源：' + review.sections.join('、')));
   return messages;

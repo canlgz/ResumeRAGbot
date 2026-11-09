@@ -52,9 +52,9 @@ function setup({ hr = () => candidate(goodReview), jd = goodJd } = {}) {
   return f;
 }
 
-test('step 2 offers 貼職缺說明 while step 1 keeps only 取消', () => {
+test('step 2 offers 貼職缺說明 while step 1 offers insight shortcuts and 取消', () => {
   const f = setup();
-  assert.deepEqual(f.send('hr:start', true)[0].quickReply.items.map(i => i.action.data), ['hr:cancel']);
+  assert.deepEqual(f.send('hr:start', true)[0].quickReply.items.map(i => i.action.data), ['hr:timeline', 'hr:star', 'hr:cancel']);
   const step2 = f.send('AI 應用工程師')[0];
   assert.deepEqual(step2.quickReply.items.map(i => i.action.data), ['hr:jd:' + f.draft().id, 'hr:cancel']);
   assert.match(step2.text, /貼職缺說明/);
