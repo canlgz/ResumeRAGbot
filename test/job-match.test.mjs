@@ -70,8 +70,8 @@ test('evicted draft never reaches RAG', () => {
   assert.match(m[0].text, /已過期/);
   assert.equal(aiCalls(f), 0);
   assert.equal(f.state.documentWrites, 0);
-  // 旗標只攔一次，之後回到一般問答。
-  f.send('有哪些技能？'); assert(aiCalls(f) > 0);
+  // 保護期間內後續片段也一樣攔住（期限過後才回到一般問答，見 stale pending flag 測試）。
+  assert.match(f.send('必要：具 SQL 經驗')[0].text, /已過期/); assert.equal(aiCalls(f), 0);
 });
 
 test('quick reply shows 職缺對照 third and stays within 6 items', () => {
@@ -349,4 +349,78 @@ test('result itself sends no email and no push', () => {
   const f = resultReady();
   assert.equal(f.state.emails.length, 0);
   assert(!f.state.calls.some(c => c.url.includes('/message/push')));
+});
+
+// ===== Final review fixes =====
+
+test('script lock is not held during Gemini or LINE content calls', () => {
+  let held = false, violations = 0;
+  const f = jobFixture({ response: call => {
+    if (held && /generativelanguage|api-data\.line\.me/.test(call.url)) violations++;
+    return null;
+  } });
+  f.gas.LockService = { getScriptLock: () => ({ waitLock() { held = true; }, tryLock() { held = true; return true; }, releaseLock() { held = false; } }) };
+  f.send('jm:start', { postback: true }); f.send('', { image: true }); f.send(jd);
+  f.send('jm:done:' + f.draft().id, { postback: true });
+  f.send('jm:run:' + f.draft().id, { postback: true });
+  assert.equal(f.draft().stage, 'result'); assert.equal(violations, 0);
+});
+
+test('events arriving while a slow step runs get a wait message and do not change the draft', () => {
+  const f = jobFixture(); f.send('jm:start', { postback: true }); f.send(jd);
+  const key = f.gas.jobMatchKey_('user-1', f.gas.config_()), d = f.draft();
+  d.busy = { eventId: 'other', until: Date.now() + 60000 }; f.gas.saveJobMatchDraft_(key, d);
+  const m = f.send('再貼一段');
+  assert.match(m[0].text, /處理中/); assert.equal(f.draft().texts.length, 1);
+  const n = f.send('jm:done:' + d.id, { postback: true });
+  assert.match(n[0].text, /處理中/); assert.equal(aiCalls(f), 0);
+});
+
+test('a slow result is discarded when the draft was cancelled meanwhile', () => {
+  const f = jobFixture(); f.send('jm:start', { postback: true }); f.send(jd);
+  const key = f.gas.jobMatchKey_('user-1', f.gas.config_());
+  const original = f.gas.extractCriteria_;
+  f.gas.extractCriteria_ = (text, cfg) => { f.gas.CacheService.getScriptCache().remove(key); return original(text, cfg); };
+  const m = f.send('jm:done:' + f.draft().id, { postback: true });
+  assert.match(m[0].text, /已變更|已取消|已過期/); assert.equal(f.draft(), null);
+});
+
+test('after the result card, free text goes to normal Q&A and ends the job draft', () => {
+  const f = readyToRun(); f.send('jm:run:' + f.draft().id, { postback: true });
+  const before = f.state.calls.filter(c => c.url.endsWith(':generateContent')).length;
+  f.send('他做過哪些 Python 專案？');
+  assert.equal(f.draft(), null);
+  const answers = f.state.calls.filter(c => c.url.endsWith(':generateContent')).slice(before);
+  assert(answers.length >= 1); assert(!answers.some(c => c.body.generationConfig?.responseSchema?.properties?.criteria));
+});
+
+test('done is ignored outside the input stage', () => {
+  const f = readyToRun(); const id = f.draft().id; f.send('jm:run:' + id, { postback: true });
+  const results = JSON.stringify(f.draft().results), extracts = extractCalls(f).length;
+  const m = f.send('jm:done:' + id, { postback: true });
+  assert.match(m[0].text, /已失效/); assert.equal(extractCalls(f).length, extracts);
+  assert.equal(JSON.stringify(f.draft().results), results);
+});
+
+test('finishing a match clears the pending flag so later questions are never intercepted', () => {
+  const f = readyToRun(); f.send('jm:run:' + f.draft().id, { postback: true });
+  assert(![...f.state.properties.keys()].some(k => k.startsWith('pending_jobmatch:')));
+  f.state.cache.clear(); const m = f.send('有哪些技能？');
+  assert.doesNotMatch(m[0].text || '', /已過期/);
+});
+
+test('after eviction every pasted fragment within the window is shielded from RAG and the Doc', () => {
+  const f = jobFixture(); f.send('jm:start', { postback: true }); f.state.cache.clear();
+  for (const part of ['職缺第一段：必要 Python', '職缺第二段：加分 Tableau', '職缺第三段：年齡不限']) {
+    assert.match(f.send(part)[0].text, /已過期/);
+  }
+  assert.equal(aiCalls(f), 0); assert.equal(f.state.documentWrites, 0);
+});
+
+test('a stale pending flag past its window does not intercept', () => {
+  const f = jobFixture(); f.send('jm:start', { postback: true }); f.state.cache.clear();
+  const key = [...f.state.properties.keys()].find(k => k.startsWith('pending_jobmatch:'));
+  f.state.properties.set(key, JSON.stringify({ until: Date.now() - 1 }));
+  f.send('有哪些技能？'); assert(aiCalls(f) > 0);
+  assert(!f.state.properties.has(key));
 });

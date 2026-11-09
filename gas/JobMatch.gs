@@ -30,6 +30,41 @@ function clearJobMatch_(userId, cfg) {
   PropertiesService.getScriptProperties().deleteProperty('pending_' + key);
 }
 
+var JOB_PENDING_GRACE_MS_ = 600000;  // 草稿自然過期後 10 分鐘內，仍攔住遲到的職缺片段。
+var JOB_PENDING_SHIELD_MS_ = 120000; // 回覆「已過期」後再保護 2 分鐘，分多則貼上的片段都攔得住。
+var JOB_BUSY_MS_ = 120000;           // 慢步驟（AI 呼叫）處理中的標記，逾時視為已中斷。
+
+/**
+ * 待填旗標只記到期時間、不含職缺內容。到期或格式不符就刪除，不再攔截一般問答。
+ */
+function jobPendingActive_(pendingKey) {
+  var props = PropertiesService.getScriptProperties(), value = props.getProperty(pendingKey), until = 0;
+  if (!value) return false;
+  try { until = Number(JSON.parse(value).until) || 0; } catch (_) {}
+  if (until > Date.now()) return true;
+  props.deleteProperty(pendingKey); return false;
+}
+
+function setJobPending_(pendingKey, until) {
+  PropertiesService.getScriptProperties().setProperty(pendingKey, JSON.stringify({ until: until }));
+}
+
+/** 只在讀寫草稿時持有鎖；AI 呼叫一律在鎖外進行，避免其他訪客的訊息等不到鎖而遺失。 */
+function withJobLock_(fn) {
+  var lock = LockService.getScriptLock(); lock.waitLock(5000);
+  try { return fn(); } finally { lock.releaseLock(); }
+}
+
+/** 判斷這則訊息是否需要呼叫 AI 或下載圖片（慢步驟）。 */
+function jobSlowKind_(draft, event, text, isImage) {
+  var id = draft.id;
+  if (draft.stage === 'input' && isImage) return 'image';
+  if (draft.stage === 'input' && (text === 'jm:done:' + id || (text === 'jm:retry:' + id && draft.failedStage === 'extract'))) return 'extract';
+  if ((draft.stage === 'confirm' || draft.stage === 'adding') && draft.criteria.length &&
+      (text === 'jm:run:' + id || (text === 'jm:retry:' + id && draft.failedStage === 'match'))) return 'match';
+  return null;
+}
+
 /** 訪客目前是否在貼職缺（輸入或補充條件階段），供其他流程讓出文字。 */
 function jobMatchCollecting_(userId, cfg) {
   var draft = readJobMatchDraft_(jobMatchKey_(userId, cfg));
@@ -69,36 +104,60 @@ function handleJobMatch_(event, text, cfg, prepared) {
     clearJobMatch_(userId, cfg); return null;
   }
   var isImage = event.type === 'message' && event.message && event.message.type === 'image';
-  var lock = LockService.getScriptLock(); lock.waitLock(5000);
-  try {
-    var draft = readJobMatchDraft_(key), eventId = eventKey_(event);
-    if (draft && draft.lastEvent === eventId && draft.lastMessages) return draft.lastMessages;
-    function remember(messages) {
-      if (draft) { draft.lastEvent = eventId; draft.lastMessages = messages; saveJobMatchDraft_(key, draft); }
-      return messages;
-    }
+  var eventId = eventKey_(event);
+  function remember(draft, messages) {
+    draft.lastEvent = eventId; draft.lastMessages = messages; saveJobMatchDraft_(key, draft);
+    // 走到結果就不再需要攔截：之後的一般問題照常回答。
+    if (draft.stage === 'result') props.deleteProperty(pendingKey);
+    return messages;
+  }
+  // 第一段（持鎖）：讀草稿、處理快速操作；需要 AI 的步驟先標記處理中再放開鎖。
+  var first = withJobLock_(function () {
+    var draft = readJobMatchDraft_(key);
+    if (draft && draft.lastEvent === eventId && draft.lastMessages) return { messages: draft.lastMessages };
     if (jobMatchIntent_(text) || text === 'jm:restart') {
-      draft = newJobMatchDraft_(); props.setProperty(pendingKey, draft.id);
-      return remember(jobInputPrompt_(draft, 'start'));
+      draft = newJobMatchDraft_(); setJobPending_(pendingKey, draft.expiresAt + JOB_PENDING_GRACE_MS_);
+      return { messages: remember(draft, jobInputPrompt_(draft, 'start')) };
     }
     if (text === 'jm:cancel' || (draft && /^(?:取消|取消對照)$/.test(text))) {
-      clearJobMatch_(userId, cfg); draft = null;
-      return [textMessage_('已取消職缺對照，剛才的職缺內容已清除。')];
+      clearJobMatch_(userId, cfg);
+      return { messages: [textMessage_('已取消職缺對照，剛才的職缺內容已清除。')] };
     }
     if (!draft) {
-      // 快取提早清除：攔住這一則，不讓職缺內容誤進一般問答或待補充問題。
-      if (props.getProperty(pendingKey) && (event.type === 'message' || /^jm:/.test(text))) {
-        props.deleteProperty(pendingKey);
-        return [textMessage_('職缺草稿已過期，剛才的內容沒有交給 AI。請重新選擇「職缺對照」。')];
+      // 快取提早清除或草稿過期：攔住職缺片段，不讓它誤進一般問答或待補充問題。
+      if (jobPendingActive_(pendingKey) && (event.type === 'message' || /^jm:/.test(text))) {
+        setJobPending_(pendingKey, Date.now() + JOB_PENDING_SHIELD_MS_);
+        return { messages: [textMessage_('職缺草稿已過期，剛才的內容沒有交給 AI。請重新選擇「職缺對照」。')] };
       }
-      if (/^jm:/.test(text)) return [textMessage_('這張卡片已失效，請重新選擇「職缺對照」。')];
-      return null;
+      if (/^jm:/.test(text)) return { messages: [textMessage_('這張卡片已失效，請重新選擇「職缺對照」。')] };
+      return { pass: true };
     }
+    if (draft.busy && draft.busy.until > Date.now()) return { messages: [textMessage_('上一步還在處理中，請稍候幾秒再試。')] };
+    // 看完結果後輸入一般問題：結束職缺對照，交給一般問答。
+    if (draft.stage === 'result' && event.type === 'message' && !/^jm:/.test(text)) { clearJobMatch_(userId, cfg); return { pass: true }; }
+    var slow = jobSlowKind_(draft, event, text, isImage);
+    if (slow) { draft.busy = { eventId: eventId, until: Date.now() + JOB_BUSY_MS_ }; saveJobMatchDraft_(key, draft); return { slow: slow, draft: draft }; }
     var handled = jobMatchStep_(draft, event, text, isImage, cfg, prepared);
-    if (handled === null) return null;
-    if (handled.clear) { clearJobMatch_(userId, cfg); draft = null; }
-    return remember(handled.messages);
-  } finally { lock.releaseLock(); }
+    if (handled === null) return { pass: true };
+    if (handled.clear) { clearJobMatch_(userId, cfg); return { messages: handled.messages }; }
+    return { messages: remember(draft, handled.messages) };
+  });
+  if (first.pass) return null;
+  if (first.messages) return first.messages;
+  // 第二段（不持鎖）：下載圖片、呼叫 Gemini。
+  var draft = first.draft, messages;
+  if (first.slow === 'image') messages = jobImageStep_(draft, event, cfg);
+  else if (first.slow === 'extract') messages = jobExtractStep_(draft, cfg, userId);
+  else messages = jobRunStep_(draft, cfg, prepared, userId);
+  // 第三段（持鎖）：草稿在處理期間被取消、重來或過期時，捨棄這次結果。
+  return withJobLock_(function () {
+    var current = readJobMatchDraft_(key);
+    if (!current || current.id !== draft.id || !current.busy || current.busy.eventId !== eventId) {
+      return [textMessage_('職缺草稿已變更或已取消，這次的結果沒有套用。請重新選擇「職缺對照」。')];
+    }
+    delete draft.busy;
+    return remember(draft, messages);
+  });
 }
 
 /** 依草稿階段處理一則訊息；回傳 { messages, clear } 或 null。 */
@@ -106,7 +165,6 @@ function jobMatchStep_(draft, event, text, isImage, cfg, prepared) {
   var id = draft.id, match = /^jm:[a-z]+:([a-f0-9]{16})/.exec(text);
   if (match && match[1] !== id) return { messages: [textMessage_('這張卡片已失效，請使用最新的卡片。')] };
   if (draft.stage === 'input') {
-    if (isImage) return { messages: jobImageStep_(draft, event, cfg) };
     if (event.type === 'message' && text && !/^jm:/.test(text)) {
       var added = appendJobText_(draft, text);
       if (!added.ok && added.reason === 'TOO_LONG') return { messages: [textMessage_('職缺內容合計最多 ' + JOB_MATCH_LIMITS_.textChars +
@@ -121,7 +179,6 @@ function jobMatchStep_(draft, event, text, isImage, cfg, prepared) {
 function jobMatchAction_(draft, event, text, cfg, prepared) {
   var id = draft.id, parts;
   if (draft.stage === 'adding' && event.type === 'message' && text && !/^jm:/.test(text)) return { messages: addJobCriterion_(draft, text) };
-  if (text === 'jm:done:' + id || (text === 'jm:retry:' + id && draft.failedStage === 'extract')) return { messages: jobExtractStep_(draft, cfg, event.source.userId) };
   if (draft.stage === 'confirm' || draft.stage === 'adding') {
     if ((parts = /^jm:lv:[a-f0-9]{16}:(C\d+):(must|plus)$/.exec(text))) {
       var target = draft.criteria.find(function (c) { return c.id === parts[1]; });
@@ -152,8 +209,8 @@ function jobMatchLaterAction_(draft, event, text, cfg, prepared) {
     // 重複按「開始對照」或 LINE 重送：沿用已完成的結果，不再呼叫 API。
     if (draft.stage === 'result' && draft.results.length) return { messages: jobMatchResultMessages_(draft) };
     if (draft.stage !== 'confirm' && draft.stage !== 'adding') return { messages: [textMessage_('這張卡片已失效，請使用最新的卡片。')] };
-    if (!draft.criteria.length) return { messages: [textMessage_('請至少保留一項條件，或按「補充條件」新增後再開始對照。')] };
-    return { messages: jobRunStep_(draft, cfg, prepared, event.source.userId) };
+    // 有條件時已在 handleJobMatch_ 的慢步驟處理；走到這裡只剩沒有條件的情況。
+    return { messages: [textMessage_('請至少保留一項條件，或按「補充條件」新增後再開始對照。')] };
   }
   if (text === 'jm:invite:' + id && draft.stage === 'result') {
     // 帶著問題轉交 v2 邀約流程；職缺草稿隨即清除，不留在快取。
