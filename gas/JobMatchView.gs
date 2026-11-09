@@ -64,6 +64,11 @@ function criteriaConfirmMessages_(draft) {
   return [{ type: 'flex', altText: '請確認職缺條件', contents: { type: 'carousel', contents: bubbles } }, guide];
 }
 
+/** 對照結果（Task 4 會換成燈號熱圖卡）。 */
+function jobMatchResultMessages_(draft) {
+  return [textMessage_(draft.results.map(function (r) { return r.id + '：' + r.status; }).join('\n'))];
+}
+
 /** 輸入階段的提示：開始、收到內容或提醒下一步。 */
 function jobInputPrompt_(draft, mode) {
   var status = '（共 ' + jobTextLength_(draft) + ' 字／' + draft.imageCount + ' 張圖）';

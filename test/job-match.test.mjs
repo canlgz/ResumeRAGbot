@@ -162,3 +162,101 @@ test('API 429 keeps the draft and retry re-runs extraction', () => {
   fail = false; f.send('jm:retry:' + id, { postback: true });
   assert.equal(f.draft().stage, 'confirm'); assert.equal(f.draft().failedStage, null);
 });
+
+// ===== Task 3：逐項檢索、對照與引用降級 =====
+
+const generations = f => f.state.calls.filter(c => c.url.endsWith(':generateContent'));
+const matchCalls = f => f.state.calls.filter(c => c.body?.generationConfig?.responseSchema?.properties?.results);
+
+test('run makes exactly one batch embedding and one generation', () => {
+  const f = readyToRun(); f.state.calls.length = 0;
+  f.send('jm:run:' + f.draft().id, { postback: true });
+  assert.equal(f.state.calls.filter(c => c.url.endsWith(':batchEmbedContents')).length, 1);
+  assert.equal(f.state.calls.filter(c => c.url.endsWith(':embedContent')).length, 0);
+  assert.equal(generations(f).length, 1);
+  assert.equal(f.draft().stage, 'result');
+  const prompt = JSON.stringify(matchCalls(f)[0].body);
+  assert.match(prompt, /年資/); assert.match(prompt, /履歷未提及/);
+});
+
+test('unverifiable quote downgrades to unconfirmed with a default question', () => {
+  const f = readyToRun({ results: { results: [
+    { id: 'C1', status: 'supported', evidence: [{ chunkId: 'S2', quote: '以 Python 建立銷售報表自動化' }], note: '有專案', question: '' },
+    { id: 'C2', status: 'supported', evidence: [{ chunkId: 'S1', quote: '精通 SQL 效能調校' }], note: '有', question: '' },
+    { id: 'C3', status: 'partial', evidence: [], note: '無', question: '' }] } });
+  f.send('jm:run:' + f.draft().id, { postback: true });
+  const [c1, c2, c3] = f.draft().results;
+  assert.equal(c1.status, 'supported'); assert.equal(c1.evidence[0].section, '專案作品');
+  assert.equal(c2.status, 'unconfirmed'); assert.equal(c2.evidence.length, 0); assert.match(c2.question, /SQL/);
+  assert.equal(c3.status, 'unconfirmed');
+});
+
+test('quote from another criterion\'s hits is not accepted', () => {
+  // S1（技能）只對 C1、S2（專案）只對 C2；C2 引用 S1 的原句必須被拒絕。
+  const vectors = { 'C1': 0, 'C2': 1 };
+  const f = readyToRun({
+    criteria: { title: '', excluded: [], criteria: [
+      { text: '熟悉 Python', level: 'must', quote: '必要：熟悉 Python' }, { text: '具 SQL 經驗', level: 'must', quote: '必要：具 SQL 經驗' }] },
+    results: { results: [
+      { id: 'C1', status: 'supported', evidence: [{ chunkId: 'S1', quote: 'Python、SQL 資料分析' }], note: '', question: '' },
+      { id: 'C2', status: 'supported', evidence: [{ chunkId: 'S1', quote: 'Python、SQL 資料分析' }], note: '', question: '' }] },
+    response: call => {
+      if (!call.url.endsWith(':batchEmbedContents')) return null;
+      const unit = i => Array.from({ length: 768 }, (_, n) => n === i ? 1 : 0);
+      if (call.body.requests[0].taskType === 'RETRIEVAL_DOCUMENT') return { body: { embeddings: call.body.requests.map((_, i) => ({ values: unit(i) })) } };
+      return { body: { embeddings: call.body.requests.map((r, i) => ({ values: unit(i) })) } };
+    } });
+  f.send('jm:run:' + f.draft().id, { postback: true });
+  assert.deepEqual(plain(f.draft().results.map(r => r.status)), ['supported', 'unconfirmed']);
+  void vectors;
+});
+
+test('missing or extra results are normalized and long text is trimmed', () => {
+  const f = readyToRun({ results: { results: [
+    { id: 'C9', status: 'supported', evidence: [], note: '多出的', question: '' },
+    { id: 'C1', status: 'unconfirmed', evidence: [], note: '註'.repeat(80), question: '問'.repeat(100) }] } });
+  f.send('jm:run:' + f.draft().id, { postback: true });
+  const results = f.draft().results;
+  assert.deepEqual(plain(results.map(r => r.id)), ['C1', 'C2', 'C3']);
+  assert.equal(Array.from(results[0].note).length, 40); assert.equal(Array.from(results[0].question).length, 60);
+  assert.equal(results[1].status, 'unconfirmed');
+});
+
+test('doc edited after sync returns stale and calls no generation', () => {
+  const f = readyToRun(); f.state.calls.length = 0;
+  f.state.text = f.state.text.replace('Python、SQL', 'Python、SQL、R');
+  const m = f.send('jm:run:' + f.draft().id, { postback: true });
+  assert.match(m[0].text, /等待同步/); assert.equal(generations(f).length, 0);
+  assert.equal(f.draft().stage, 'confirm');
+});
+
+test('retried run event reuses last messages', () => {
+  const f = readyToRun(); const id = f.draft().id;
+  f.send('jm:run:' + id, { postback: true, id: 'same' }); const before = aiCalls(f);
+  const again = f.send('jm:run:' + id, { postback: true, id: 'same-retry' });
+  assert.equal(aiCalls(f), before); assert(again.length > 0);
+});
+
+test('run with every criterion deleted asks to keep at least one', () => {
+  const f = readyToRun(); const id = f.draft().id;
+  for (const c of f.draft().criteria) f.send('jm:del:' + id + ':' + c.id, { postback: true });
+  const m = f.send('jm:run:' + id, { postback: true });
+  assert.match(m[0].text, /至少保留一項/); assert.equal(matchCalls(f).length, 0);
+});
+
+test('match API failure keeps the draft and retry re-runs matching', () => {
+  let fail = true;
+  const f = readyToRun({ response: call => fail && call.body?.generationConfig?.responseSchema?.properties?.results ? { status: 503, body: {} } : null });
+  const id = f.draft().id; const m = f.send('jm:run:' + id, { postback: true });
+  assert.match(m[0].text, /503/); assert.equal(f.draft().failedStage, 'match');
+  fail = false; f.send('jm:retry:' + id, { postback: true }); assert.equal(f.draft().stage, 'result');
+});
+
+test('job match never writes Doc, index or pending questions', () => {
+  const f = readyToRun(); const cfg = f.gas.config_();
+  const indexFile = f.state.files.get(f.state.properties.get('INDEX_FILE_ID')).content;
+  f.send('jm:run:' + f.draft().id, { postback: true });
+  assert.equal(f.state.documentWrites, 0);
+  assert.equal(f.state.files.get(f.state.properties.get('INDEX_FILE_ID')).content, indexFile);
+  assert(!f.state.text.includes('資料分析師')); void cfg;
+});
