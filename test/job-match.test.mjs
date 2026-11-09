@@ -309,3 +309,44 @@ test('all-unconfirmed result omits evidence carousel and still offers invite', (
   assert(m[1].quickReply.items.some(i => i.action.data === 'jm:invite:' + d.id));
   assert.match(m[1].text, /不代表不具備/);
 });
+
+// ===== Task 6：帶待確認問題的預填邀約 =====
+
+function resultReady(options) { const f = readyToRun(options); f.send('jm:run:' + f.draft().id, { postback: true }); return f; }
+const invitation = f => f.gas.invitationDraft_(f.gas.invitationKey_('user-1', f.gas.config_()));
+const records = f => Object.keys(f.gas.loadPortfolioStore_(f.gas.config_()).invitations || {});
+
+test('jobInvitationPrefill_ lists only questions for partial and unconfirmed items', () => {
+  const { gas } = jobFixture();
+  const text = gas.jobInvitationPrefill_(draftWith([['C1', 'must', 'supported'], ['C2', 'must', 'partial'], ['C3', 'plus', 'unconfirmed']]));
+  assert.equal(text, '職缺：資料分析師\n想先請教本人的問題：\n1. 問題C2\n2. 問題C3');
+  const long = draftWith(Array.from({ length: 8 }, (_, i) => ['C' + i, 'must', 'unconfirmed']));
+  long.results.forEach(r => { r.question = '問'.repeat(200); });
+  assert.equal(Array.from(gas.jobInvitationPrefill_(long)).length, 800);
+});
+
+test('invite from result pre-fills questions and still requires confirmation', () => {
+  const f = resultReady(); f.send('jm:invite:' + f.draft().id, { postback: true });
+  assert.equal(f.draft(), null);
+  assert.equal(invitation(f).step, 0);
+  f.send('青禾公司／王小姐');
+  const prompt = f.state.calls.filter(c => c.url.endsWith('/message/reply')).at(-1).body.messages[0];
+  assert.match(prompt.text, /請說明使用 SQL 的專案/);
+  assert(prompt.quickReply.items.some(i => i.action.data === 'invite:keep:' + invitation(f).id));
+  f.send('invite:keep:' + invitation(f).id, { postback: true });
+  assert.match(invitation(f).fields.message, /想先請教本人的問題/);
+  assert.equal(invitation(f).step, 2);
+  assert.equal(records(f).length, 0);
+});
+
+test('typing in step 2 overrides the prefill', () => {
+  const f = resultReady(); f.send('jm:invite:' + f.draft().id, { postback: true });
+  f.send('青禾公司／王小姐'); f.send('想邀請您面試資料分析師');
+  assert.equal(invitation(f).fields.message, '想邀請您面試資料分析師');
+});
+
+test('result itself sends no email and no push', () => {
+  const f = resultReady();
+  assert.equal(f.state.emails.length, 0);
+  assert(!f.state.calls.some(c => c.url.includes('/message/push')));
+});

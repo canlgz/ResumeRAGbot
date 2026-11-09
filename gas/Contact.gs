@@ -91,10 +91,13 @@ var INVITATION_FIELDS_ = [
 ];
 
 function invitationPrompt_(draft) {
-  var field = INVITATION_FIELDS_[draft.step], message = textMessage_('留下邀約 ' + (draft.step + 1) + ' / 4\n' + field.prompt +
+  var field = INVITATION_FIELDS_[draft.step], prefilled = draft.step === 1 && draft.prefill && draft.prefill.message;
+  var message = textMessage_('留下邀約 ' + (draft.step + 1) + ' / 4\n' +
+    (prefilled ? '以下是根據職缺對照整理的內容。按「沿用」直接使用，或輸入文字改寫：\n\n' + draft.prefill.message : field.prompt) +
     (draft.step === 0 ? '\n\n確認後才會存入履歷主人的私有邀約收件匣，並以 Email 與已設定的 LINE 通知本人；填寫內容不交給 AI。30 分鐘內可繼續，輸入「取消」可離開。' : ''));
   message.quickReply = { items: [{ type: 'action', action: { type: 'postback', label: '取消邀約', data: 'invite:cancel', displayText: '取消邀約' } }] };
   if (draft.step === 3) message.quickReply.items.unshift({ type: 'action', action: { type: 'postback', label: '略過時段', data: 'invite:skip:' + draft.id, displayText: '略過時段' } });
+  if (prefilled) message.quickReply.items.unshift({ type: 'action', action: { type: 'postback', label: '沿用', data: 'invite:keep:' + draft.id, displayText: '沿用這段內容' } });
   return [message];
 }
 
@@ -209,7 +212,9 @@ function handleContact_(event, text, cfg, prepared, options) {
       cache.remove(key); props.deleteProperty(pendingKey); draft = null; return remember([textMessage_('已取消填寫，未送出新的邀約。')]);
     }
     if (text === 'invite:start' || text === '留下邀約' || draft && text === 'invite:restart:' + draft.id) {
-      draft = { id: sha256_(Utilities.getUuid()).slice(0, 32), step: 0, fields: {}, expiresAt: Date.now() + 1800000 };
+      // 重新填寫時保留職缺對照帶來的預填內容。
+      draft = { id: sha256_(Utilities.getUuid()).slice(0, 32), step: 0, fields: {}, expiresAt: Date.now() + 1800000,
+        prefill: draft && text === 'invite:restart:' + draft.id ? draft.prefill : undefined };
       props.setProperty(pendingKey, draft.id);
       return remember(invitationPrompt_(draft));
     }
@@ -235,6 +240,7 @@ function handleContact_(event, text, cfg, prepared, options) {
     if (draft && draft.step < 4) {
       var field = INVITATION_FIELDS_[draft.step], value = text;
       if (text === 'invite:skip:' + draft.id && draft.step === 3) value = '';
+      else if (text === 'invite:keep:' + draft.id && draft.step === 1 && draft.prefill) value = draft.prefill.message;
       else if (event.type !== 'message' || !text || /^invite:/.test(text)) return invitationPrompt_(draft);
       else if (text.length > field.limit) return [textMessage_('這一欄請控制在 ' + field.limit + ' 字內，再傳送一次。')];
       draft.fields[field.key] = value; draft.step++;
@@ -246,6 +252,18 @@ function handleContact_(event, text, cfg, prepared, options) {
     if (contactIntent_(text) && !jobMatchCollecting_(event.source.userId, cfg)) return [contactMessage_(cfg, prepared)];
     return null;
   } finally { lock.releaseLock(); }
+}
+
+/**
+ * V3：從職缺對照帶著預填內容開始邀約；之後的填寫、確認與通知完全沿用 v2。
+ */
+function startInvitationWithPrefill_(event, cfg, prefill) {
+  var key = invitationKey_(event.source.userId, cfg);
+  var draft = { id: sha256_(Utilities.getUuid()).slice(0, 32), step: 0, fields: {}, expiresAt: Date.now() + 1800000,
+    prefill: { message: Array.from(String(prefill && prefill.message || '')).slice(0, INVITATION_FIELDS_[1].limit).join('') } };
+  CacheService.getScriptCache().put(key, JSON.stringify(draft), 1800);
+  PropertiesService.getScriptProperties().setProperty('pending_' + key, draft.id);
+  return invitationPrompt_(draft);
 }
 
 /** 主人在 GAS 執行此入口；收件匣與圖片管理共用限時身分驗證。 */

@@ -155,7 +155,20 @@ function jobMatchLaterAction_(draft, event, text, cfg, prepared) {
     if (!draft.criteria.length) return { messages: [textMessage_('請至少保留一項條件，或按「補充條件」新增後再開始對照。')] };
     return { messages: jobRunStep_(draft, cfg, prepared, event.source.userId) };
   }
+  if (text === 'jm:invite:' + id && draft.stage === 'result') {
+    // 帶著問題轉交 v2 邀約流程；職缺草稿隨即清除，不留在快取。
+    return { clear: true, messages: startInvitationWithPrefill_(event, cfg, { message: jobInvitationPrefill_(draft) }) };
+  }
   return { messages: [textMessage_('這張卡片已失效，請使用最新的卡片。')] };
+}
+
+/** 邀約第 2 欄的預填內容：職稱＋待確認項目的問題，最多 800 字。 */
+function jobInvitationPrefill_(draft) {
+  var questions = sortedRows_(draft).filter(function (row) { return row.result.status !== 'supported' && row.result.question; })
+    .map(function (row, i) { return (i + 1) + '. ' + row.result.question; });
+  var lines = ['職缺：' + (draft.title || '（未命名職缺）')];
+  if (questions.length) lines.push('想先請教本人的問題：\n' + questions.join('\n'));
+  return Array.from(lines.join('\n')).slice(0, 800).join('');
 }
 
 /** 「開始對照」：1 次批次 Embedding＋1 次生成，再由程式逐字核對引用。 */
