@@ -131,6 +131,7 @@ function handleEvent_(event, cfg) {
     }
     if (!cfg.enabled) messages = [textMessage_('履歷助理目前暫停服務，請稍後再試。')];
     else if ((messages = handleContact_(event, text, cfg, prepared))) { /* 聯繫與邀約不經 RAG。 */ }
+    else if ((messages = handleJobMatch_(event, text, cfg, prepared))) { /* V3 職缺對照：草稿進行中優先於一般問答與 800 字限制。 */ }
     else if (/^(清除對話|重新開始|reset)$/i.test(text)) {
       clearConversation_(event.source.userId);
       CacheService.getScriptCache().remove(stickerHistoryKey_(event.source.userId));

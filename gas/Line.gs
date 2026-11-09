@@ -5,12 +5,21 @@
  */
 
 /**
- * 固定兩個基本入口，加上本次有效的適性主題；不在聊天時重新分類。
+ * 固定兩個基本入口，第三個是 V3「職缺對照」，再加上本次有效的適性主題；不在聊天時重新分類。
  */
+function menuEntries_() {
+  var entries = visibleMenuTopics_().slice();
+  entries.splice(Math.min(2, entries.length), 0, { kind: 'jobmatch', label: '職缺對照' });
+  return entries;
+}
+
+/** 主題按鈕帶 topic:<id>；職缺對照按鈕帶 jm:start。 */
+function menuAction_(entry) {
+  return { type: 'postback', label: entry.label, data: entry.kind === 'jobmatch' ? 'jm:start' : 'topic:' + entry.id, displayText: entry.label };
+}
+
 function quickReply_() {
-  return { items: visibleMenuTopics_().map(function (topic) {
-    return { type: 'action', action: { type: 'postback', label: topic.label, data: 'topic:' + topic.id, displayText: topic.label } };
-  }) };
+  return { items: menuEntries_().map(function (entry) { return { type: 'action', action: menuAction_(entry) }; }) };
 }
 
 var LINE_STICKERS_ = {
@@ -117,7 +126,7 @@ function friendlyAvatar_() {
  * 首頁與 Quick Reply 沿用相同順序：我是誰、快速一覽、同步產生的適性主題。
  */
 function welcomeMessage_(cfg, prepared) {
-  var buttons = visibleMenuTopics_(), profile = {}, portrait = null;
+  var buttons = menuEntries_(), profile = {}, portrait = null;
   // 新舊索引不符時，不能把已從文件刪掉的個資繼續顯示在首頁。
   if (prepared && prepared.index && prepared.source && prepared.index.fingerprint === prepared.source.fingerprint) {
     profile = validateHomeProfile_(prepared.index.quickTopics && prepared.index.quickTopics.homeProfile, prepared.index.chunks);
@@ -127,7 +136,7 @@ function welcomeMessage_(cfg, prepared) {
   function text(value, size, color, bold) {
     return { type: 'text', text: value, size: size, color: color, weight: bold ? 'bold' : 'regular', wrap: true };
   }
-  function action(topic) { return { type: 'postback', label: topic.label, data: 'topic:' + topic.id, displayText: topic.label }; }
+  var action = menuAction_;
   function card(number, title, contents, footer) {
     return { type: 'bubble', size: 'kilo', header: { type: 'box', layout: 'horizontal', paddingAll: '16px', backgroundColor: '#143D35', contents: [
       text(title, 'xs', '#FFFFFF', true), { type: 'text', text: number + ' / 03', align: 'end', size: 'xxs', color: '#B7D8C9', flex: 0 }
@@ -152,7 +161,7 @@ function welcomeMessage_(cfg, prepared) {
   for (var i = 0; i < buttons.length; i += 2) {
     navigation.push({ type: 'box', layout: 'horizontal', spacing: 'sm', contents: buttons.slice(i, i + 2).map(function (topic) {
       return { type: 'box', layout: 'vertical', flex: 1, height: '55px', paddingAll: '8px', cornerRadius: '10px',
-        backgroundColor: topic.kind === 'adaptive' ? '#E8EFE9' : '#23735B', justifyContent: 'center', action: action(topic), contents: [
+        backgroundColor: topic.kind === 'adaptive' ? '#E8EFE9' : topic.kind === 'jobmatch' ? '#A18150' : '#23735B', justifyContent: 'center', action: action(topic), contents: [
           { type: 'text', text: topic.label, size: 'xs', align: 'center', color: topic.kind === 'adaptive' ? '#143D35' : '#FFFFFF', weight: 'bold', wrap: true }
         ] };
     }) });

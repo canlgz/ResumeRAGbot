@@ -1,5 +1,5 @@
 /**
- * 【履歷選單：兩個基本入口，加上最多四個適性特色】
+ * 【履歷選單：兩個基本入口、職缺對照，加上最多三個適性特色】
  * 「我是誰」介紹身分；「快速一覽」提供摘要；適性主題才深入專案與作品。
  * 分類只在同步時執行，基本資料不再被包成含糊的「職涯與技能背景」特色。
  */
@@ -21,10 +21,10 @@ function coreResumeTopics_(index) {
   ];
 }
 
-/** 全站共用選單：固定兩項在前，適性主題沿用同步後的同一份，總數不超過六個。 */
+/** 全站共用主題：固定兩項在前，適性主題沿用同步後的同一份（最多三個）；Quick Reply 另插入「職缺對照」，總數不超過六個。 */
 function menuTopics_(index) {
   var adaptive = index && index.quickTopics && index.quickTopics.status === 'ready' && Array.isArray(index.quickTopics.topics) ? index.quickTopics.topics : [];
-  return coreResumeTopics_(index).concat(adaptive.slice(0, 4));
+  return coreResumeTopics_(index).concat(adaptive.slice(0, 3));
 }
 
 function visibleMenuTopics_() { return MESSAGE_TOPICS_.length ? MESSAGE_TOPICS_ : coreResumeTopics_(null); }

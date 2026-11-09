@@ -181,6 +181,8 @@ function handleContact_(event, text, cfg, prepared, options) {
   var key = invitationKey_(event.source.userId, cfg), cache = CacheService.getScriptCache(), props = PropertiesService.getScriptProperties();
   var pendingKey = 'pending_' + key;
   if (/^(?:使用說明|說明|help|隱私|privacy)$/i.test(text)) return null;
+  // 進入聯繫或邀約時結束職缺對照草稿，避免之後的輸入被誤當成職缺內容。
+  if (/^(?:nav:contact|invite:start|留下邀約)$/.test(text)) clearJobMatch_(event.source.userId, cfg);
   if (event.type === 'follow' || /^(?:首頁|選單|回首頁|履歷首頁|home|menu|開始|nav:home|清除對話|重新開始|reset)$/i.test(text) || /^(?:topic|work):/.test(text)) {
     cache.remove(key); props.deleteProperty(pendingKey); return null;
   }
@@ -240,7 +242,8 @@ function handleContact_(event, text, cfg, prepared, options) {
     }
     if (draft && draft.step === 4) return invitationConfirmation_(draft);
     if (/^invite:/.test(text)) return [textMessage_('邀約草稿已失效，請重新選擇「留下邀約」。')];
-    if (contactIntent_(text)) return [contactMessage_(cfg, prepared)];
+    // 人資正在貼職缺時，職缺中的「面試」「合作」等字屬於職缺內容，不當成聯繫意圖。
+    if (contactIntent_(text) && !jobMatchCollecting_(event.source.userId, cfg)) return [contactMessage_(cfg, prepared)];
     return null;
   } finally { lock.releaseLock(); }
 }
