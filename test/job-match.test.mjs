@@ -260,3 +260,52 @@ test('job match never writes Doc, index or pending questions', () => {
   assert.equal(f.state.files.get(f.state.properties.get('INDEX_FILE_ID')).content, indexFile);
   assert(!f.state.text.includes('資料分析師')); void cfg;
 });
+
+// ===== Task 4：燈號熱圖、證據卡與面談問題 =====
+
+function draftWith(rows) {
+  return { id: 'a'.repeat(16), title: '資料分析師', excluded: [],
+    criteria: rows.map(([id, level]) => ({ id, text: '條件' + id, level, quote: '原句' + id, source: 'jd' })),
+    results: rows.map(([id, , status]) => ({ id, status, note: '說明' + id,
+      evidence: status === 'unconfirmed' ? [] : [{ chunkId: 'S1', section: '專業技能', quote: '原文' + id }],
+      question: status === 'supported' ? '' : '問題' + id })) };
+}
+
+test('heatmap rows are ordered must-first with unconfirmed on top and use the fixed colors', () => {
+  const { gas } = jobFixture();
+  const d = draftWith([['C1', 'must', 'supported'], ['C2', 'plus', 'unconfirmed'], ['C3', 'must', 'unconfirmed'], ['C4', 'must', 'partial']]);
+  assert.deepEqual(plain(gas.sortedRows_(d).map(r => r.criterion.id)), ['C3', 'C4', 'C1', 'C2']);
+  const json = JSON.stringify(gas.heatmapMessage_(d));
+  for (const color of ['#2E7D32', '#F9A825', '#BDBDBD']) assert(json.includes(color), color);
+  assert(!/#(?:E53935|F44336|FF0000|D32F2F)/i.test(json));
+  assert(json.includes('資料分析師')); assert(json.includes('說明C1'));
+});
+
+test('summary counts supported per level and never says score', () => {
+  const { gas } = jobFixture();
+  const d = draftWith([['C1', 'must', 'supported'], ['C2', 'must', 'partial'], ['C3', 'plus', 'unconfirmed']]);
+  assert.equal(gas.jobMatchSummary_(d), '必要條件 1／2 有依據・加分條件 0／1 有依據');
+  assert.equal(gas.jobMatchSummary_(draftWith([['C1', 'must', 'supported']])), '必要條件 1／1 有依據');
+  assert(!/分數|\d+\s*分(?!類)/.test(JSON.stringify(gas.jobMatchResultMessages_(d))));
+});
+
+test('result reply has at most 5 messages and evidence shows the resume quote and section', () => {
+  const f = readyToRun(); const m = f.send('jm:run:' + f.draft().id, { postback: true });
+  assert(m.length <= 5); assert.equal(m[0].type, 'flex'); assert.match(m[0].altText, /有依據/);
+  const evidence = JSON.stringify(m[1]);
+  assert(evidence.includes('以 Python 建立銷售報表自動化')); assert(evidence.includes('專案作品'));
+  const last = m.at(-1);
+  assert.match(last.text, /請說明使用 SQL 的專案/);
+  const actions = last.quickReply.items.map(i => i.action.data);
+  assert(actions.includes('jm:invite:' + f.draft().id)); assert(actions.includes('jm:restart'));
+});
+
+test('all-unconfirmed result omits evidence carousel and still offers invite', () => {
+  const { gas } = jobFixture();
+  const d = draftWith([['C1', 'must', 'unconfirmed'], ['C2', 'plus', 'unconfirmed']]);
+  assert.equal(gas.evidenceCarousel_(d), null);
+  const m = gas.jobMatchResultMessages_(d);
+  assert.equal(m.length, 2);
+  assert(m[1].quickReply.items.some(i => i.action.data === 'jm:invite:' + d.id));
+  assert.match(m[1].text, /不代表不具備/);
+});
