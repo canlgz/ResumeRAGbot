@@ -117,7 +117,14 @@ function invitationReceipt_(record) {
   var detail = status === 'sent' ? 'Email 通知已送交 Google 寄送，請等候本人透過您留下的方式回覆。' :
     lineSent ? 'LINE 通知已送交平台推播，請等候本人透過您留下的方式回覆。' :
     status && status !== 'test_skipped' ? 'Email 通知尚未確認寄出，您也可以使用「聯繫本人」中的 Email 直接聯絡。' : '供本人確認並透過您留下的方式回覆。';
-  return [textMessage_('邀約已存入履歷主人的私有收件匣。' + detail + '這不代表面試或合作已排定。')];
+  var message = textMessage_('邀約已存入履歷主人的私有收件匣。' + detail + '這不代表面試或合作已排定。');
+  var booking = false;
+  try { booking = bookingConfig_().enabled; } catch (_) {}
+  if (booking && record && record.id && !record.booking) {
+    message.text += '\n\n想直接約時間，可以按「預約面談時段」。';
+    message.quickReply.items.unshift({ type: 'action', action: { type: 'postback', label: '預約面談時段', data: 'book:list:' + record.id, displayText: '預約面談時段' } });
+  }
+  return [message];
 }
 
 /** 通知信附完整邀約，主人可直接閱讀；只使用純文字，不執行訪客提供的 HTML。 */
@@ -184,6 +191,7 @@ function handleContact_(event, text, cfg, prepared, options) {
   var key = invitationKey_(event.source.userId, cfg), cache = CacheService.getScriptCache(), props = PropertiesService.getScriptProperties();
   var pendingKey = 'pending_' + key;
   if (/^(?:使用說明|說明|help|隱私|privacy)$/i.test(text)) return null;
+  if (/^book:/.test(text)) return handleBooking_(event, text, cfg);
   // 進入聯繫或邀約時結束職缺對照草稿，避免之後的輸入被誤當成職缺內容。
   if (/^(?:nav:contact|invite:start|留下邀約)$/.test(text)) clearJobMatch_(event.source.userId, cfg);
   if (event.type === 'follow' || /^(?:首頁|選單|回首頁|履歷首頁|home|menu|開始|nav:home|清除對話|重新開始|reset)$/i.test(text) || /^(?:topic|work):/.test(text)) {
