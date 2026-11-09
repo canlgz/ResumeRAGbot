@@ -1,0 +1,17 @@
+Task 1: Ruling: contactIntent_ in handleContact_ runs before job match and would hijack pasted JD text containing 「面試/合作」 — guard with jobMatchCollecting_() and test it — cost if wrong: JD lines lost to contact card.
+Task 1: Ruling: entry added via menuEntries_() in Line.gs (Quick Reply + homepage nav grid, gold #A18150) instead of the third card footer — homepage test requires nav grid == quick reply and footer == nav:home — cost if wrong: entry location cosmetic.
+Task 1: Ruling: adaptive topics shown capped 4→3 (teacher PR #2 did the same); quick-topics test "four adaptive areas…without losing any area" rewritten to the new 3+2+1=6 rule — cost if wrong: 4th adaptive topic only reachable by typing.
+Task 2: Ruling: criterion ids never reused (draft.nextCriterion) instead of max+1 — old delete buttons would hit a newly added criterion — cost if wrong: none, ids just skip numbers.
+Task 3: Ruling: evidence capped at 2 quotes per criterion; supported items carry no question — keeps result cards short — cost if wrong: fewer quotes shown.
+Task 4: Ruling: follow-up actions placed in Quick Reply of the question message (not Flex footer buttons) — consistent with confirm step; Quick Reply also carries 回首頁 — cost if wrong: buttons disappear after the next message (re-run via jm:run returns them).
+Task 5: Ruling: added LINE loading animation to screenshot OCR, 完成輸入 and 開始對照 (not in plan) — these are the slow steps; startLoading_ already fails silently — cost if wrong: one extra LINE API call per step.
+Task 6: Ruling: startInvitationWithPrefill_ writes the invitation draft without taking the script lock (caller handleJobMatch_ already holds it; GAS lock re-entry not relied on); invite:restart keeps the prefill — cost if wrong: none observed.
+Task 7: Ruling: slots step hourly and start on the hour, with a 2-hour minimum lead — plan did not fix the step — cost if wrong: no half-hour starts.
+Task 7: Ruling: ran bundle at end of Task 7 (planned for Task 8) because student-flow test compares START_HERE.html against the manifest — cost if wrong: none; Task 8 re-runs bundle.
+Task 8: Ruling: version 2.1.0 instead of 3.0.0-guaisme — Admin.gs checkDeployment regex only parses X.Y.Z, so a suffix would make real deployment checks fail (plan fallback) — cost if wrong: version name only.
+Final: Ruling: Task 1 test "flag intercepts only once" rewritten — it pinned the reviewed bug — cost if wrong: none.
+Final: minor (deferred): no per-visitor cap on invitations, so one account can create many 【暫定】 events (booking is off by default)
+Final: minor (deferred): JD quote check inherits v2 80% coverage; one changed digit in a long quote can pass, card shows model quote
+Final: minor (deferred): Booking.gs '這個時段無法預約。' prefix lacks '\n\n'
+Final: minor (deferred): typing 說明/help during JD input is appended as JD text
+Final: minor (deferred): calendar busy check counts all-day/free events and ignores secondary calendars

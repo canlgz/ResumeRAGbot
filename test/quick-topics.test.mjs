@@ -8,8 +8,8 @@ const classifications=f=>f.state.calls.filter(c=>c.body?.generationConfig?.respo
 test('the two essential entries are always visible and the homepage uses their exact same order',()=>{
   const {gas,state}=createGas();gas.handleEvent_(event('選單','no-index'),gas.config_());
   const welcome=state.calls.find(c=>c.url.endsWith('/message/reply')).body.messages[0];
-  assert.deepEqual(welcome.quickReply.items.map(i=>i.action.label),['我是誰','快速一覽']);
-  assert.deepEqual(welcome.contents.contents[2].body.contents.slice(2).flatMap(row=>row.contents.map(b=>b.action.label)),['我是誰','快速一覽']);
+  assert.deepEqual(welcome.quickReply.items.map(i=>i.action.label),['我是誰','快速一覽','職缺對照']);
+  assert.deepEqual(welcome.contents.contents[2].body.contents.slice(2).flatMap(row=>row.contents.map(b=>b.action.label)),['我是誰','快速一覽','職缺對照']);
 });
 
 test('intro and overview each reset work memory but use different source and answer-format scopes',()=>{
@@ -52,13 +52,15 @@ test('a follow-up after an essential entry keeps its subject but does not remain
   assert.equal(payload.conversation.topicScope,null);
 });
 
-test('four adaptive areas plus two essentials fit the six-button limit without losing any area',()=>{
+// V3：第三格讓給「職缺對照」，選單最多顯示三個適性主題，Quick Reply 仍不超過六個。
+test('three adaptive areas, two essentials and job match fit the six-button limit',()=>{
   const {gas}=createGas();
   const chunks=Array.from({length:5},(_,i)=>({id:'S'+i,section:'組'+i,text:'內容'+i}));
   const groups=gas.topicGroups_(chunks),quickTopics=gas.validateQuickTopics_({profileGroupIds:['G1'],topics:groups.slice(1).map((g,i)=>({category:'專案',label:'特色領域'+i,scope:'範圍'+i,groupIds:[g.id]}))},groups,'fp',chunks);
-  const menu=gas.menuTopics_({chunks,quickTopics});assert.equal(menu.length,6);
+  const menu=gas.menuTopics_({chunks,quickTopics});assert.equal(menu.length,5);
   assert.deepEqual([...menu.slice(0,2).map(t=>t.label)],['我是誰','快速一覽']);
-  assert.equal(new Set(menu.map(t=>t.label)).size,6);
+  assert.equal(new Set(menu.map(t=>t.label)).size,5);
+  gas.MESSAGE_TOPICS_=menu;assert.equal(gas.quickReply_().items.length,6);assert.equal(gas.quickReply_().items[2].action.data,'jm:start');
 });
 
 test('legacy metadata shows both essentials while a menu-only upgrade preserves vectors and OCR',()=>{
@@ -156,10 +158,10 @@ test('sync generates adaptive themes once; profile and adaptive sources are excl
   for(const [i,text] of ['選單','使用說明','作品圖庫','網站介面','海報作品'].entries())f.gas.handleEvent_(event(text,'t'+i),f.gas.config_());
   assert.equal(classifications(f).length,1);
   const replies=f.state.calls.filter(c=>c.url.endsWith('/message/reply'));
-  const expected=JSON.stringify(menu.map(t=>t.label));
+  const labels=menu.map(t=>t.label);labels.splice(2,0,'職缺對照');const expected=JSON.stringify(labels);
   for(const call of replies)for(const message of call.body.messages){if(message.type==='sticker')continue;
     assert.equal(JSON.stringify(message.quickReply.items.map(i=>i.action.label)),expected);
-    assert(message.quickReply.items.every(i=>i.action.type==='postback'&&/^topic:/.test(i.action.data)));
+    assert(message.quickReply.items.every(i=>i.action.type==='postback'&&/^(?:topic:|jm:start$)/.test(i.action.data)));
   }
 });
 
@@ -188,7 +190,7 @@ test('topic buttons constrain answers and follow-ups to their assigned sources; 
   f.nodes.splice(9,0,paragraph('新增的職涯成果。'));
   f.gas.handleEvent_(event('選單','beforeSync'),f.gas.config_());
   const reply=f.state.calls.filter(c=>c.url.endsWith('/message/reply')).at(-1).body.messages[0];
-  assert.deepEqual(reply.quickReply.items.map(item=>item.action.label),['我是誰','快速一覽']);
+  assert.deepEqual(reply.quickReply.items.map(item=>item.action.label),['我是誰','快速一覽','職缺對照']);
   f.gas.syncKnowledgeBase();assert.notEqual(index(f).quickTopics.revision,idx.quickTopics.revision);assert.equal(classifications(f).length,2);
   f.gas.handleEvent_({...event('','oldTopic'),type:'postback',postback:{data:'topic:'+topic.id}},f.gas.config_());
   const oldReply=f.state.calls.filter(c=>c.url.endsWith('/message/reply')).at(-1).body.messages[0];assert.match(oldReply.text,/主題已更新/);
