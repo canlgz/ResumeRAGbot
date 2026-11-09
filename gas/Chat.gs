@@ -86,3 +86,32 @@ function answerLineConversation_(question, cfg, originalQuestion, userId, explic
   return { messages: messages.slice(0, 5), answerStatus: 'answered', dialogueIntent: result.dialogueIntent, fingerprint: index.fingerprint, request: request,
     works: cards.length ? cards.map(function (entry) { return entry.imageKey; }) : result.imageKeys };
 }
+
+/**
+ * 對 JD 條件分別檢索公開履歷，再生成含可核對引文的實作深度報告。
+ */
+function answerLineJobMatch_(jobDescription, cfg, prepared) {
+  var index = prepared ? prepared.index : loadIndex_(cfg);
+  if (!index) return '履歷資料正在準備中，請稍後再試。';
+  var source = prepared ? prepared.source : readPublicSource_(cfg);
+  if (source.fingerprint !== index.fingerprint) return '履歷資料正在等待同步，請稍後再試。';
+
+  var requirements = extractJobRequirements_(jobDescription, cfg);
+  var embeddingRequests = requirements.map(function (requirement) {
+    return embeddingRequest_(requirement, 'RETRIEVAL_QUERY', '', cfg);
+  });
+  var embedded = geminiRequest_(cfg.embeddingModel, 'batchEmbedContents', { requests: embeddingRequests }, cfg, true);
+  if (!embedded || !Array.isArray(embedded.embeddings) || embedded.embeddings.length !== requirements.length) {
+    throw new Error('JOB_MATCH_INVALID_EMBEDDING_BATCH');
+  }
+  var evidenceByRequirement = {};
+  requirements.forEach(function (requirement, position) {
+    var vector = normalizeVector_(embedded.embeddings[position] && embedded.embeddings[position].values, cfg.dimensions);
+    evidenceByRequirement[requirement] = rankChunks_(requirement, vector, index.chunks, {
+      minSimilarity: cfg.minSimilarity, topK: Math.min(cfg.topK, 3)
+    }).map(function (hit) { return { id: hit.id, section: hit.section, text: hit.text }; });
+  });
+  var items = assessJobMatch_(jobDescription, requirements, evidenceByRequirement, cfg);
+  if (readPublicSource_(cfg).fingerprint !== index.fingerprint) return '履歷資料在檢核期間有所更新，請重新同步後再試。';
+  return formatJobMatch_(items);
+}
