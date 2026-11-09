@@ -121,7 +121,7 @@ function jobMatchStep_(draft, event, text, isImage, cfg, prepared) {
 function jobMatchAction_(draft, event, text, cfg, prepared) {
   var id = draft.id, parts;
   if (draft.stage === 'adding' && event.type === 'message' && text && !/^jm:/.test(text)) return { messages: addJobCriterion_(draft, text) };
-  if (text === 'jm:done:' + id || (text === 'jm:retry:' + id && draft.failedStage === 'extract')) return { messages: jobExtractStep_(draft, cfg) };
+  if (text === 'jm:done:' + id || (text === 'jm:retry:' + id && draft.failedStage === 'extract')) return { messages: jobExtractStep_(draft, cfg, event.source.userId) };
   if (draft.stage === 'confirm' || draft.stage === 'adding') {
     if ((parts = /^jm:lv:[a-f0-9]{16}:(C\d+):(must|plus)$/.exec(text))) {
       var target = draft.criteria.find(function (c) { return c.id === parts[1]; });
@@ -153,14 +153,15 @@ function jobMatchLaterAction_(draft, event, text, cfg, prepared) {
     if (draft.stage === 'result' && draft.results.length) return { messages: jobMatchResultMessages_(draft) };
     if (draft.stage !== 'confirm' && draft.stage !== 'adding') return { messages: [textMessage_('這張卡片已失效，請使用最新的卡片。')] };
     if (!draft.criteria.length) return { messages: [textMessage_('請至少保留一項條件，或按「補充條件」新增後再開始對照。')] };
-    return { messages: jobRunStep_(draft, cfg, prepared) };
+    return { messages: jobRunStep_(draft, cfg, prepared, event.source.userId) };
   }
   return { messages: [textMessage_('這張卡片已失效，請使用最新的卡片。')] };
 }
 
 /** 「開始對照」：1 次批次 Embedding＋1 次生成，再由程式逐字核對引用。 */
-function jobRunStep_(draft, cfg, prepared) {
+function jobRunStep_(draft, cfg, prepared, userId) {
   var outcome;
+  startLoading_(userId, cfg);
   try { outcome = matchCriteria_(draft, cfg, prepared); }
   catch (error) {
     safeLog_(errorCode_(error)); draft.failedStage = 'match'; draft.stage = 'confirm';
@@ -256,9 +257,10 @@ function addJobCriterion_(draft, text) {
 }
 
 /** 「完成輸入」：一次 AI 呼叫拆條件，再以職缺原文逐字核對。 */
-function jobExtractStep_(draft, cfg) {
+function jobExtractStep_(draft, cfg, userId) {
   if (!draft.texts.length) return [textMessage_('還沒有職缺內容。請先貼上職缺文字或傳職缺截圖，再按「完成輸入」。')].map(withInputReply_(draft));
   var jdText = draft.texts.join('\n'), parsed;
+  startLoading_(userId, cfg);
   try { parsed = validateCriteria_(extractCriteria_(jdText, cfg), jdText); }
   catch (error) {
     safeLog_(errorCode_(error)); draft.failedStage = 'extract';
@@ -341,7 +343,22 @@ function validateCriteria_(raw, jdText) {
       .slice(0, 8).map(function (e) { return Array.from(e.trim()).slice(0, 40).join(''); }) };
 }
 
-/** 截圖輸入（Task 5 實作）；在此之前先請人資改貼文字。 */
+/** 截圖輸入：每張圖在收到的當下辨識一次，結果當成一段職缺文字。 */
 function jobImageStep_(draft, event, cfg) {
-  return [textMessage_('目前請先貼上職缺文字。')].map(withInputReply_(draft));
+  function reply(text) { return [textMessage_(text)].map(withInputReply_(draft)); }
+  if (draft.imageCount >= JOB_MATCH_LIMITS_.images) return reply('職缺截圖最多 ' + JOB_MATCH_LIMITS_.images + ' 張，這張沒有加入。其餘內容請改貼文字，或按「完成輸入」。');
+  var jobText;
+  try {
+    startLoading_(event.source.userId, cfg);
+    jobText = recognizeJobImage_(fetchLineImage_(event.message.id, cfg), cfg);
+  } catch (error) {
+    var code = errorCode_(error); safeLog_(code);
+    if (code === 'JOB_IMAGE_UNREADABLE') return reply('這張截圖看不清楚，沒有加入。請換一張較清楚的截圖，或直接貼上職缺文字。');
+    if (/^(?:GEMINI_HTTP_|MISSING_GEMINI)/.test(code)) return reply(ragErrorMessage_(error) + '\n\n這張截圖沒有加入，可以稍後再傳一次。');
+    return reply('這張截圖無法讀取（只支援 PNG、JPEG、WebP，10 MB 以內），沒有加入。請再傳一次或改貼文字。');
+  }
+  var added = appendJobText_(draft, jobText);
+  if (!added.ok) return reply('職缺內容合計最多 ' + JOB_MATCH_LIMITS_.textChars + ' 字，這張截圖的文字沒有加入。請按「完成輸入」用目前的內容。');
+  draft.imageCount++;
+  return jobInputPrompt_(draft, 'received');
 }
