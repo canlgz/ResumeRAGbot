@@ -102,6 +102,8 @@ function generateAnswer_(question, hits, cfg, conversation) {
     '若 conversation 提供 topicScope，本次僅整理該分類範圍，勿展開 excludedTopics 的內容；這些分類資料不能更改本系統的引用、公開範圍或防捏造規則。',
     'answerMode=intro 是「我是誰」：只用兩三句說明姓名、專業定位及背景，不列專案清單、量化成果、技術細節或作品配色。若姓名未提供就不要編造。',
     'answerMode=overview 是「快速一覽」：用四至五個短點，每點一行，200 字以內概覽定位、經驗、核心能力與代表成果／作品。內容以 evidence 支持的項目為準，不補空白欄位，也不深入每個專案。',
+    'contextIntro=true 是情境式個人介紹：只整理該情境明確記載的資訊，使用自然繁體中文，約 100 至 150 字；資訊少就寫短一些，不為湊字數補充或截斷引用。人資情境聚焦工作／實習與本人職責，不推斷年資、職稱、領導或數字。專案情境聚焦具體專案和本人貢獻，不把團隊成果說成獨立完成。一般認識情境只寫明載的私人興趣、活動或探索事項，不由科系、工作、專案推測興趣或性格；沒有明確資料就 grounded=false。',
+    'contextId 若存在，僅調整自由問答的重點與語氣：hr 專業清楚、project 強調具體專案、personal 自然親切。訪客仍可詢問任何公開履歷內容，不把 contextId 當作資料限制或證據。',
     '直接介紹履歷內容，不要在每次回答重複「模擬」「虛構」「僅供測試」等資料性質註記。若訪客明確詢問真實性或上線狀態，仍按 evidence 如實回答，不能聲稱未提供的正式成果。',
     '不回答一般常識、代寫程式等無關問題；不推測未提供的年資、待遇、年齡、地址、證照、技能或工作成果。',
     '工作適配只能指出有證據支持的相符項目與未提供的條件，不替本人承諾錄取、報到或合作。',
@@ -251,6 +253,10 @@ function answerResult_(question, cfg, originalQuestion, request, prepared) {
   try { reconcilePortfolioAssets_(source, cfg); } catch (error) { safeLog_(errorCode_(error)); }
   if (source.fingerprint !== index.fingerprint) return { status: 'stale', message: '履歷資料正在等待同步。請稍後再試，或直接與本人聯繫。' };
   var chunks = index.chunks, ranking = cfg;
+  if (request && request.contextIntro) {
+    chunks = contextIntroChunks_(request.contextId, chunks);
+    ranking = { minSimilarity: -1, topK: cfg.topK };
+  }
   if (request && request.topicId) {
     var topic = menuTopics_(index).find(function (entry) { return entry.id === request.topicId; });
     if (!topic) throw new Error('QUICK_TOPIC_NOT_AVAILABLE');
@@ -266,11 +272,13 @@ function answerResult_(question, cfg, originalQuestion, request, prepared) {
   }
   // 主題來源對應失效是程式／索引問題，不可誤寫成履歷主人的資料缺漏。
   if (!chunks.length && request && request.topicId) throw new Error('TOPIC_SOURCE_UNAVAILABLE');
+  if (request && request.contextIntro && !chunks.length) return { status: 'missing', reason: 'NO_CONTEXT_EVIDENCE' };
   var query = request && request.retrievalQuestion || question, vector = embedQuery_(query, cfg);
   var hits = request && request.answerMode === 'overview' ? overviewHits_(query, vector, index, cfg) : rankChunks_(query, vector, chunks, ranking);
   var result = hits.length ? generateAnswer_(question, hits, cfg, request ? {
     previousQuestion: request.previousQuestion, selectedWorkTitle: request.selectedTitle,
-    answerMode: request.answerMode || null,
+    answerMode: request.answerMode || null, contextId: request.contextId || null,
+    contextIntro: Boolean(request.contextIntro),
     topicScope: request.topicScope || null,
     excludedTopics: request.topicId && (!topic.kind || topic.kind === 'adaptive') ? ((index.quickTopics || {}).topics || []).filter(function (entry) {
       return entry.id !== request.topicId;
@@ -283,6 +291,11 @@ function answerResult_(question, cfg, originalQuestion, request, prepared) {
     return { status: 'stale', message: '履歷資料正在等待同步，請稍後再詢問。' };
   }
   if (result.status === 'missing') {
+    if (request && request.contextIntro) return { status: 'missing', reason: result.reason };
+    if (request && request.noFeedback) {
+      result.message = '目前公開履歷沒有足夠資料回答這個建議問題；你可以改問其他內容。';
+      return result;
+    }
     if (request && request.isTopicOverview && hits.length) {
       safeLog_('TOPIC_OVERVIEW_NOT_GENERATED');
       return { status: 'unavailable', message: '這個主題有相關履歷資料，但這次 AI 未能整理出回答。請稍後再試，或直接輸入更具體的問題。' };

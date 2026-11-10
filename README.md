@@ -1,5 +1,7 @@
 # ResumeRAGbot
 
+> `feature/v3-context-intro` 是個人 v3 候選開發分支（`3.0.0-rc.1`）；情境式個人介紹、測試與部署狀態見 [候選版說明](docs/v3情境式介紹候選版.md)。下方 v2.0.0 安裝說明仍描述老師的正式版。
+
 用 **Google Apps Script（GAS）＋Google 文件＋Gemini API** 建立 LINE 互動履歷，供學生安裝、修改與測試。每位學生使用自己的帳號與 API 設定，不需要 Cloudflare 或外部向量資料庫。
 
 第一次執行 `initializeProject`，會在學生自己的 Google Drive **自動建立含填寫指引及完整模擬履歷的文件**，並設定文件 ID 與分頁 ID。學生不必面對空白文件，也不用手動找 ID。

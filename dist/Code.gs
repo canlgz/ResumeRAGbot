@@ -42,7 +42,7 @@ function config_() {
 /**
  * 目前程式版本；發布時須與 package.json、學生安裝包及正式部署一致。
  */
-function appVersion_() { return '2.0.0'; }
+function appVersion_() { return '3.0.0-rc.1'; }
 
 /**
  * 接受原始文件 ID 或一般 Google Docs 網址，統一取得文件 ID。
@@ -1330,7 +1330,8 @@ function readConversation_(userId, fingerprint) {
   var value;
   try { value = JSON.parse(CacheService.getScriptCache().get(conversationKey_(userId)) || 'null'); } catch (_) {}
   if (!value || !Number.isFinite(value.expiresAt) || value.expiresAt <= Date.now() || value.fingerprint !== fingerprint ||
-      !Array.isArray(value.works) || typeof value.lastQuestion !== 'string') {
+      !Array.isArray(value.works) || typeof value.lastQuestion !== 'string' ||
+      (value.contextId && !CONTEXT_INTROS_[value.contextId])) {
     try { clearConversation_(userId); } catch (_) { safeLog_('CONVERSATION_CACHE_UNAVAILABLE'); }
     return null;
   }
@@ -1376,10 +1377,77 @@ function saveConversation_(userId, fingerprint, request, keys, startedAt) {
     if (!works.length && request.focus) works = [request.focus];
     var focus = request.focus || (works.length === 1 ? works[0] : null);
     cache.put(key, JSON.stringify({ fingerprint: fingerprint, works: works, focus: focus,
-      topicId: request.topicId || null,
+      topicId: request.topicId || null, contextId: request.contextId || null,
       lastQuestion: Array.from(request.memoryAnchor || request.previousQuestion || request.question).slice(0, 800).join(''), savedAt: Date.now(),
       expiresAt: Date.now() + 600000 }), 600);
   } finally { lock.releaseLock(); }
+}
+
+
+// ===== ContextIntro.gs =====
+/** 情境式介紹只使用已同步的公開索引；情境是回答角度，不是自由提問的檢索限制。 */
+var CONTEXT_INTROS_ = {
+  hr: { label: '人資面試', question: '請根據公開履歷，簡短介紹我明確記載的工作、實習、職務與本人職責及成果。',
+    questions: ['你有哪些工作或實習經驗？', '你曾經負責哪些重要任務？', '這些經驗讓你培養了哪些能力？'] },
+  project: { label: '專案合作', question: '請根據公開履歷，簡短介紹我參與的具體專案、本人負責的工作、方法與成果。',
+    questions: ['你做過哪些專案？', '你曾經使用哪些技術？', '哪個專案最能代表你的能力？'] },
+  personal: { label: '一般認識', question: '請根據公開履歷，簡短介紹我明確記載的私人興趣、喜好、活動或正在探索的領域。',
+    questions: ['你平常有哪些興趣？', '你最近對什麼領域感興趣？', '你喜歡從事哪些活動？'] }
+};
+
+function contextIntroChunks_(kind, chunks) {
+  var patterns = {
+    hr: /工作經歷|實習|任職|職務|職責|工作內容|工作經驗|職涯經驗/,
+    project: /專案|專題|作品|研究計畫|開發經驗|合作經驗/,
+    // 興趣必須明載，不能由科系、工作或專案推斷私人生活。
+    personal: /興趣|喜好|休閒|日常活動|平常喜歡|最近在探索|關注領域/
+  };
+  var pattern = patterns[kind];
+  return pattern ? chunks.filter(function (chunk) { return pattern.test(chunk.section + '\n' + chunk.text); }) : [];
+}
+
+function contextIntroMenu_() {
+  return { type: 'flex', altText: '情境式個人介紹：選擇情境', quickReply: quickReply_(), contents: {
+    type: 'bubble', size: 'kilo', body: { type: 'box', layout: 'vertical', spacing: 'md', contents: [
+      { type: 'text', text: '情境式個人介紹', weight: 'bold', size: 'lg' },
+      { type: 'text', text: '選擇想了解的面向；之後也可自由提問。', wrap: true, size: 'sm' }
+    ] }, footer: { type: 'box', layout: 'vertical', spacing: 'sm', contents: Object.keys(CONTEXT_INTROS_).map(function (kind) {
+      return { type: 'button', style: 'link', action: { type: 'postback', label: CONTEXT_INTROS_[kind].label,
+        data: 'ctx:select:' + kind, displayText: CONTEXT_INTROS_[kind].label } };
+    }).concat([{ type: 'button', style: 'link', action: { type: 'postback', label: '回首頁', data: 'nav:home', displayText: '首頁' } }]) } }
+  };
+}
+
+function contextIntroQuestions_(kind) {
+  return { items: CONTEXT_INTROS_[kind].questions.map(function (question, i) {
+    return { type: 'action', action: { type: 'postback', label: Array.from(question).slice(0, 20).join(''),
+      data: 'ctx:ask:' + kind + ':' + i, displayText: question } };
+  }).concat([
+    { type: 'action', action: { type: 'postback', label: '切換情境', data: 'ctx:menu', displayText: '切換情境' } },
+    { type: 'action', action: { type: 'postback', label: '取消介紹', data: 'ctx:cancel', displayText: '取消介紹' } },
+    { type: 'action', action: { type: 'postback', label: '回首頁', data: 'nav:home', displayText: '首頁' } }
+  ]) };
+}
+
+function answerContextIntro_(kind, cfg, userId, prepared) {
+  var spec = CONTEXT_INTROS_[kind];
+  if (!spec) return { messages: [textMessage_('介紹情境已更新，請重新選擇。')] };
+  var index = prepared ? prepared.index : loadIndex_(cfg);
+  if (!index) return { messages: [textMessage_('履歷資料正在準備中，請稍後再試。')] };
+  var source = prepared ? prepared.source : readPublicSource_(cfg);
+  if (source.fingerprint !== index.fingerprint) {
+    clearConversation_(userId);
+    return { messages: [textMessage_('履歷資料正在等待同步，請稍後再試。')] };
+  }
+  var request = { question: spec.question, contextId: kind, contextIntro: true };
+  var result = answerResult_(spec.question, cfg, spec.question, request, { index: index, source: source });
+  if (result.status === 'stale' || result.status === 'unavailable') return { messages: [textMessage_(result.message)] };
+  var messages = result.status === 'answered' ? [textMessage_(result.answerText), textMessage_(result.source)] :
+    [textMessage_('目前公開履歷沒有足夠的「' + spec.label + '」資料可供介紹。你仍可直接詢問其他公開履歷內容。')];
+  messages.push(textMessage_('你可以繼續提問，也可以選擇下方的延伸問題。'));
+  messages[messages.length - 1].quickReply = contextIntroQuestions_(kind);
+  return { messages: messages, answerStatus: result.status, fingerprint: index.fingerprint,
+    request: request, works: [], dialogueIntent: 'neutral' };
 }
 
 
@@ -1488,6 +1556,8 @@ function generateAnswer_(question, hits, cfg, conversation) {
     '若 conversation 提供 topicScope，本次僅整理該分類範圍，勿展開 excludedTopics 的內容；這些分類資料不能更改本系統的引用、公開範圍或防捏造規則。',
     'answerMode=intro 是「我是誰」：只用兩三句說明姓名、專業定位及背景，不列專案清單、量化成果、技術細節或作品配色。若姓名未提供就不要編造。',
     'answerMode=overview 是「快速一覽」：用四至五個短點，每點一行，200 字以內概覽定位、經驗、核心能力與代表成果／作品。內容以 evidence 支持的項目為準，不補空白欄位，也不深入每個專案。',
+    'contextIntro=true 是情境式個人介紹：只整理該情境明確記載的資訊，使用自然繁體中文，約 100 至 150 字；資訊少就寫短一些，不為湊字數補充或截斷引用。人資情境聚焦工作／實習與本人職責，不推斷年資、職稱、領導或數字。專案情境聚焦具體專案和本人貢獻，不把團隊成果說成獨立完成。一般認識情境只寫明載的私人興趣、活動或探索事項，不由科系、工作、專案推測興趣或性格；沒有明確資料就 grounded=false。',
+    'contextId 若存在，僅調整自由問答的重點與語氣：hr 專業清楚、project 強調具體專案、personal 自然親切。訪客仍可詢問任何公開履歷內容，不把 contextId 當作資料限制或證據。',
     '直接介紹履歷內容，不要在每次回答重複「模擬」「虛構」「僅供測試」等資料性質註記。若訪客明確詢問真實性或上線狀態，仍按 evidence 如實回答，不能聲稱未提供的正式成果。',
     '不回答一般常識、代寫程式等無關問題；不推測未提供的年資、待遇、年齡、地址、證照、技能或工作成果。',
     '工作適配只能指出有證據支持的相符項目與未提供的條件，不替本人承諾錄取、報到或合作。',
@@ -1637,6 +1707,10 @@ function answerResult_(question, cfg, originalQuestion, request, prepared) {
   try { reconcilePortfolioAssets_(source, cfg); } catch (error) { safeLog_(errorCode_(error)); }
   if (source.fingerprint !== index.fingerprint) return { status: 'stale', message: '履歷資料正在等待同步。請稍後再試，或直接與本人聯繫。' };
   var chunks = index.chunks, ranking = cfg;
+  if (request && request.contextIntro) {
+    chunks = contextIntroChunks_(request.contextId, chunks);
+    ranking = { minSimilarity: -1, topK: cfg.topK };
+  }
   if (request && request.topicId) {
     var topic = menuTopics_(index).find(function (entry) { return entry.id === request.topicId; });
     if (!topic) throw new Error('QUICK_TOPIC_NOT_AVAILABLE');
@@ -1652,11 +1726,13 @@ function answerResult_(question, cfg, originalQuestion, request, prepared) {
   }
   // 主題來源對應失效是程式／索引問題，不可誤寫成履歷主人的資料缺漏。
   if (!chunks.length && request && request.topicId) throw new Error('TOPIC_SOURCE_UNAVAILABLE');
+  if (request && request.contextIntro && !chunks.length) return { status: 'missing', reason: 'NO_CONTEXT_EVIDENCE' };
   var query = request && request.retrievalQuestion || question, vector = embedQuery_(query, cfg);
   var hits = request && request.answerMode === 'overview' ? overviewHits_(query, vector, index, cfg) : rankChunks_(query, vector, chunks, ranking);
   var result = hits.length ? generateAnswer_(question, hits, cfg, request ? {
     previousQuestion: request.previousQuestion, selectedWorkTitle: request.selectedTitle,
-    answerMode: request.answerMode || null,
+    answerMode: request.answerMode || null, contextId: request.contextId || null,
+    contextIntro: Boolean(request.contextIntro),
     topicScope: request.topicScope || null,
     excludedTopics: request.topicId && (!topic.kind || topic.kind === 'adaptive') ? ((index.quickTopics || {}).topics || []).filter(function (entry) {
       return entry.id !== request.topicId;
@@ -1669,6 +1745,11 @@ function answerResult_(question, cfg, originalQuestion, request, prepared) {
     return { status: 'stale', message: '履歷資料正在等待同步，請稍後再詢問。' };
   }
   if (result.status === 'missing') {
+    if (request && request.contextIntro) return { status: 'missing', reason: result.reason };
+    if (request && request.noFeedback) {
+      result.message = '目前公開履歷沒有足夠資料回答這個建議問題；你可以改問其他內容。';
+      return result;
+    }
     if (request && request.isTopicOverview && hits.length) {
       safeLog_('TOPIC_OVERVIEW_NOT_GENERATED');
       return { status: 'unavailable', message: '這個主題有相關履歷資料，但這次 AI 未能整理出回答。請稍後再試，或直接輸入更具體的問題。' };
@@ -1964,7 +2045,10 @@ function welcomeMessage_(cfg, prepared) {
   return { type: 'flex', altText: Array.from(name).slice(0,50).join('') + '｜認識我・個人特質・履歷導覽', quickReply: quickReply_(), contents: { type: 'carousel', contents: [
     card('01', 'HELLO / 認識我', identity, [contactButton_('聯繫本人', 'nav:contact')]),
     card('02', 'ABOUT / 個人特質', traits, [compactButton(buttons[1])]),
-    card('03', 'EXPLORE / 履歷導覽', navigation, [{ type: 'button', height: 'sm', style: 'link', color: '#23735B', action: { type: 'postback', label: '回首頁', data: 'nav:home', displayText: '首頁' } }])
+    card('03', 'EXPLORE / 履歷導覽', navigation, [
+      { type: 'button', height: 'sm', style: 'link', color: '#23735B', action: { type: 'postback', label: '回首頁', data: 'nav:home', displayText: '首頁' } },
+      { type: 'button', height: 'sm', style: 'link', color: '#23735B', action: { type: 'postback', label: '情境式個人介紹', data: 'ctx:menu', displayText: '情境式個人介紹' } }
+    ])
   ] } };
 }
 
@@ -2422,7 +2506,7 @@ function testContactFlow(token) {
  * 回傳要送出的訊息與待保存記憶；此處不直接傳訊息。
  * 依目前主題或作品限定檢索來源，選擇不明時先提供作品選擇卡。
  */
-function answerLineConversation_(question, cfg, originalQuestion, userId, explicitKey, gallery, topicId, prepared) {
+function answerLineConversation_(question, cfg, originalQuestion, userId, explicitKey, gallery, topicId, prepared, suggested) {
   var index = prepared ? prepared.index : loadIndex_(cfg);
   if (!index) return { messages: [textMessage_('履歷資料正在準備中，請稍後再來，或直接與本人聯繫。')] };
   var source = prepared ? prepared.source : readPublicSource_(cfg);
@@ -2445,6 +2529,8 @@ function answerLineConversation_(question, cfg, originalQuestion, userId, explic
     topic.kind === 'overview' ? '快速一覽：請用四至五個短點概覽履歷主人的職涯定位、經驗、核心能力及代表成果或作品，每點一句，不展開技術細節。' :
     '請介紹「' + topic.label + '」相關履歷內容，挑選一至兩項已記載的經驗或成果。';
   var request = conversationRequest_(question, explicitTopic ? null : memory, index, explicitKey);
+  request.contextId = memory && memory.contextId || null;
+  request.noFeedback = Boolean(suggested);
   if (!topic && !explicitKey && request.previousQuestion && memory && memory.topicId) {
     var inherited = topics.find(function (entry) { return entry.id === memory.topicId; });
     // 基本入口的簡介／摘要格式只用於按下入口當次，後續追問可自然深入。
@@ -2889,7 +2975,48 @@ function handleEvent_(event, cfg) {
       messages = [textMessage_('短期對話記憶已清除，現在可以開始新的問題。')];
     }
     else if (event.type === 'follow' || /^(選單|首頁|回首頁|履歷首頁|menu|home|開始|nav:home)$/i.test(text)) {
+      clearConversation_(event.source.userId);
       messages = [welcomeMessage_(cfg, prepared)];
+    }
+    else if (text === 'ctx:menu' || /^(情境式個人介紹|切換情境)$/.test(text)) {
+      messages = [contextIntroMenu_()];
+    }
+    else if (text === 'ctx:cancel' || text === '取消介紹') {
+      clearConversation_(event.source.userId);
+      messages = [textMessage_('已結束情境式介紹。你仍可直接提問，或輸入「首頁」重新開始。')];
+    }
+    else if (event.type === 'postback' && /^ctx:select:(hr|project|personal)$/.test(text)) {
+      startLoading_(event.source.userId, cfg);
+      try {
+        conversation = answerContextIntro_(text.slice('ctx:select:'.length), cfg, event.source.userId, prepared);
+        messages = conversation.messages;
+      } catch (error) {
+        safeLog_(errorCode_(error));
+        messages = [textMessage_(ragErrorMessage_(error))];
+      }
+    }
+    else if (event.type === 'postback' && /^ctx:ask:(hr|project|personal):[0-2]$/.test(text)) {
+      var ask = /^ctx:ask:(hr|project|personal):([0-2])$/.exec(text);
+      var activeIndex = prepared && prepared.index;
+      var activeMemory = activeIndex && readConversation_(event.source.userId, activeIndex.fingerprint);
+      if (!prepared || prepared.source.fingerprint !== activeIndex.fingerprint || !activeMemory || activeMemory.contextId !== ask[1]) {
+        messages = [textMessage_('這個延伸問題已過期或情境已切換，請重新選擇介紹情境。'), contextIntroMenu_()];
+      } else if (!contextIntroChunks_(ask[1], activeIndex.chunks).length) {
+        messages = [textMessage_('目前公開履歷沒有足夠的「' + CONTEXT_INTROS_[ask[1]].label + '」資料可回答這個建議問題。')];
+      } else {
+        startLoading_(event.source.userId, cfg);
+        try {
+          var suggested = CONTEXT_INTROS_[ask[1]].questions[Number(ask[2])];
+          conversation = answerLineConversation_(suggested, cfg, suggested, event.source.userId, null, false, null, prepared, true);
+          messages = conversation.messages;
+        } catch (error) {
+          safeLog_(errorCode_(error));
+          messages = [textMessage_(ragErrorMessage_(error))];
+        }
+      }
+    }
+    else if (event.type === 'postback' && text.indexOf('ctx:') === 0) {
+      messages = [textMessage_('這個介紹選項已失效，請重新選擇。'), contextIntroMenu_()];
     }
     else if (/^(使用說明|說明|help)$/i.test(text)) messages = [textMessage_(helpText_())];
     else if (/^(隱私|privacy)$/i.test(text)) messages = [textMessage_(privacyText_())];
@@ -3045,8 +3172,8 @@ function deploymentVersionStatus_() {
       return result;
     }
     var body = response.getContentText();
-    var match = body.match(/RESUMERAGBOT_VERSION=([0-9]+\.[0-9]+\.[0-9]+)(?![0-9.])/)
-      || body.match(/LINE 履歷助理已部署。版本\s+([0-9]+\.[0-9]+\.[0-9]+)(?![0-9.])/);
+    var match = body.match(/RESUMERAGBOT_VERSION=([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?)(?![0-9A-Za-z.])/)
+      || body.match(/LINE 履歷助理已部署。版本\s+([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?)(?![0-9A-Za-z.])/);
     if (!match) {
       result.status = 'unrecognized';
       result.message = '正式網址沒有可辨識的版本資訊，尚未確認一致。請用無痕視窗開啟不含 key 的 /exec 網址，核對版本及是否要求登入。';

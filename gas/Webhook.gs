@@ -137,7 +137,48 @@ function handleEvent_(event, cfg) {
       messages = [textMessage_('短期對話記憶已清除，現在可以開始新的問題。')];
     }
     else if (event.type === 'follow' || /^(選單|首頁|回首頁|履歷首頁|menu|home|開始|nav:home)$/i.test(text)) {
+      clearConversation_(event.source.userId);
       messages = [welcomeMessage_(cfg, prepared)];
+    }
+    else if (text === 'ctx:menu' || /^(情境式個人介紹|切換情境)$/.test(text)) {
+      messages = [contextIntroMenu_()];
+    }
+    else if (text === 'ctx:cancel' || text === '取消介紹') {
+      clearConversation_(event.source.userId);
+      messages = [textMessage_('已結束情境式介紹。你仍可直接提問，或輸入「首頁」重新開始。')];
+    }
+    else if (event.type === 'postback' && /^ctx:select:(hr|project|personal)$/.test(text)) {
+      startLoading_(event.source.userId, cfg);
+      try {
+        conversation = answerContextIntro_(text.slice('ctx:select:'.length), cfg, event.source.userId, prepared);
+        messages = conversation.messages;
+      } catch (error) {
+        safeLog_(errorCode_(error));
+        messages = [textMessage_(ragErrorMessage_(error))];
+      }
+    }
+    else if (event.type === 'postback' && /^ctx:ask:(hr|project|personal):[0-2]$/.test(text)) {
+      var ask = /^ctx:ask:(hr|project|personal):([0-2])$/.exec(text);
+      var activeIndex = prepared && prepared.index;
+      var activeMemory = activeIndex && readConversation_(event.source.userId, activeIndex.fingerprint);
+      if (!prepared || prepared.source.fingerprint !== activeIndex.fingerprint || !activeMemory || activeMemory.contextId !== ask[1]) {
+        messages = [textMessage_('這個延伸問題已過期或情境已切換，請重新選擇介紹情境。'), contextIntroMenu_()];
+      } else if (!contextIntroChunks_(ask[1], activeIndex.chunks).length) {
+        messages = [textMessage_('目前公開履歷沒有足夠的「' + CONTEXT_INTROS_[ask[1]].label + '」資料可回答這個建議問題。')];
+      } else {
+        startLoading_(event.source.userId, cfg);
+        try {
+          var suggested = CONTEXT_INTROS_[ask[1]].questions[Number(ask[2])];
+          conversation = answerLineConversation_(suggested, cfg, suggested, event.source.userId, null, false, null, prepared, true);
+          messages = conversation.messages;
+        } catch (error) {
+          safeLog_(errorCode_(error));
+          messages = [textMessage_(ragErrorMessage_(error))];
+        }
+      }
+    }
+    else if (event.type === 'postback' && text.indexOf('ctx:') === 0) {
+      messages = [textMessage_('這個介紹選項已失效，請重新選擇。'), contextIntroMenu_()];
     }
     else if (/^(使用說明|說明|help)$/i.test(text)) messages = [textMessage_(helpText_())];
     else if (/^(隱私|privacy)$/i.test(text)) messages = [textMessage_(privacyText_())];

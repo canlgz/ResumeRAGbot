@@ -44,15 +44,15 @@
 <body>
 <main>
   <header>
-    <div class="version">RESUMERAGBOT · 第二版 · 學生安裝包 <span id="version">__VERSION__</span></div>
+    <div class="version">RESUMERAGBOT · v3 情境介紹候選版 · 測試安裝包 <span id="version">__VERSION__</span></div>
     <h1>把自己的履歷變成 LINE 機器人</h1>
-    <p>本頁是第二版，已整合 2026-10-26 完成的功能，不必依序安裝中間版本。先用完整模擬履歷完成測試，再換成自己的資料。照順序完成下列步驟，每一階段都有完成判斷。</p>
+    <p>本頁是以 v2.0.0 為基礎的 v3 候選版，新增人資面試、專案合作與一般認識的情境式個人介紹，供自己的 GAS 測試與審查。每次部署後仍須從 LINE 親自驗收；先用完整模擬履歷完成測試，再換成自己的資料。</p>
   </header>
   <div class="intro">
     <p>請先將 ZIP <strong>全部解壓縮</strong>，再用電腦瀏覽器開啟這個 START_HERE.html（它和 README.md 放在同一個資料夾）。此頁已內含要複製的程式，無須安裝 Node.js 或 Git。</p>
     <p><strong>開始前先確認帳號：</strong>建議使用<strong>年滿 18 歲的個人 Gmail</strong>，從頭到尾用同一個 Google 帳號。Gemini API 條款要求使用者年滿 18 歲；學校 Google 帳號（Workspace for Education）未滿 18 歲不能使用 AI Studio，學校帳號也可能無法把網頁應用程式開放給「所有人」。不符合時請先告知老師。另需一個能登入的 LINE 帳號。</p>
     <p class="small">金鑰只填入自己的 GAS「指令碼屬性」。此頁不要求輸入或保存金鑰。Google 授權、LINE 頻道與 API 配額使用自己的帳號。</p>
-    <details><summary>這份安裝要完成哪些部分？</summary><p>步驟 1～7 建立基本問答；步驟 8 換成自己的履歷；步驟 9 是有圖片時的展示與校對；步驟 10 是邀約通知。要使用完整 v2 通知功能，必須完成步驟 10。完成安裝後，可閱讀未來發展的延伸思考。</p></details>
+    <details><summary>這份安裝要完成哪些部分？</summary><p>步驟 1～7 建立基本問答；步驟 8 換成自己的履歷；步驟 9 是有圖片時的展示與校對；步驟 10 是沿用 v2 的邀約通知。完成後在 LINE 首頁點「情境式個人介紹」測試三種情境、延伸問題與自由問答。</p></details>
     <details><summary>兩個網址不要貼反</summary><table><thead><tr><th>欄位</th><th>要填什麼</th></tr></thead><tbody><tr><td>GAS 的 WEB_APP_URL</td><td>自己部署的 /exec 網址，不含 ?key=</td></tr><tr><td>LINE 的 Webhook URL</td><td>執行 showWebhookUrl 得到的完整 /exec?key=… 網址</td></tr></tbody></table><p>兩者都不是 GAS 編輯器網址、部署作業 ID、/dev 或圖片管理連結。</p></details>
   </div>
   <div id="copyStatus" role="status" aria-live="polite"></div>
@@ -223,12 +223,12 @@
       <li>到「部署 → 管理部署」編輯原部署，版本選<strong>「新版本」</strong>並部署；通常沿用原網址。</li>
       <li>執行 checkDeployment。兩個版本相同、status=ready 後，再看 checkSetup.index：ready 可直接測 LINE；只有 needs_sync 才重跑 syncKnowledgeBase。</li>
     </ol>
-    <p>從第一版或今日中間測試版更新到本版，版本一致後執行一次 syncKnowledgeBase 補建固定入口、適性特色、首頁與肖像預覽。原履歷及辨識規則未變時沿用向量和圖片快取。之後看 checkSetup.quickReplies 的 status 與 labels 確認分類。</p>
+    <p>從 v2.0.0 更新到本候選版時，版本一致後確認索引狀態；若公開履歷與索引相符，情境介紹沿用現有向量及圖片快取，不需因新增入口重新 OCR。只有需要同步時才執行 syncKnowledgeBase。之後看 checkSetup.quickReplies 的 status 與 labels 確認分類。</p>
     <p class="small">若顯示 DEPLOYMENT_VERSION_MISMATCH，程式會保留現有索引。請先修正版本，不要一直重跑同步。若找不到 checkDeployment，代表貼入的程式仍是舊版；若檢查回報無法連線，需核對公開權限與網址，這不等於版本不同。</p>
   </section>
     <details><summary>函式選單很多，哪些需要手動執行？</summary><p>照本頁順序選 initializeProject、testLineConnection、checkSetup、syncKnowledgeBase、testResumeAnswer、checkDeployment、showWebhookUrl。圖片管理用 openImageReview，寄信授權用 enableInvitationEmailNotifications，需要整理邀約時才用 openInvitations。</p><p>每次回到 .gs 檔案選一個函式執行；getInvitations、getImageReviewData、setOwnerLineNotification 等是管理頁呼叫的介面，不能當成安裝步驟直接按執行。不要手動執行 doPost。</p></details>
   <section class="step" id="extension-thinking">
-    <span class="number">安裝完成後 · 延伸思考</span><h2>未來 v3.0：職缺與履歷對照</h2>
+    <span class="number">安裝完成後 · 延伸思考</span><h2>其他方向：職缺與履歷對照</h2>
     <p>人資貼上職缺需求（JD）後，機器人能否整理出<strong>符合的條件、還需確認的資訊，以及值得面談的問題</strong>？這是未來方向，尚未實作，可依興趣自行延伸。</p>
     <h3>參考流程</h3>
     <ol class="reference-flow"><li>人資貼上職缺需求。</li><li>整理必要條件與加分條件。</li><li>逐項查找履歷證據。</li><li>有依據就說明並附來源；不足就列為待確認。</li><li>整理值得面談的問題。</li><li>由人資決定是否留下邀約。</li></ol>
