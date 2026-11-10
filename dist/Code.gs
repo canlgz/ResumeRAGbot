@@ -1967,6 +1967,10 @@ function quickReply_() {
   // v3 候選：最後固定一顆語言切換，任何訊息下都能隨時改語言。
   var other = MESSAGE_LANGUAGE_ === 'en' ? { label: '中文', data: 'lang:zh' } : { label: 'English', data: 'lang:en' };
   items.push({ type: 'action', action: { type: 'postback', label: other.label, data: other.data, displayText: other.label } });
+  // 主人專用：只在主人本人聊天時出現，訪客看不到。
+  if (MESSAGE_IS_OWNER_) ['📊 本週洞察', '✍️ 待補充'].forEach(function (label) {
+    items.push({ type: 'action', action: { type: 'postback', label: label, data: label.slice(3), displayText: label.slice(3) } });
+  });
   return { items: items };
 }
 
@@ -2371,14 +2375,68 @@ function sendWeeklyInsight_() {
   return result;
 }
 
-/** 主人在 LINE 輸入「本週洞察」時回覆本週與上週報告；只認 OWNER_LINE_USER_ID，訪客輸入同樣文字視為一般問題。 */
+/**
+ * 主人在 LINE 輸入「本週洞察」時回覆儀表卡片；按「上週回顧」看上週。
+ * 只認 OWNER_LINE_USER_ID，訪客輸入同樣文字視為一般問題。
+ */
 function ownerInsightMessages_(text, userId, cfg) {
-  if (!/^(?:本週洞察|每週洞察|洞察報告|weekly insight)$/i.test(text)) return null;
+  var lastWeek = text === 'insight:last';
+  if (!lastWeek && !/^(?:本週洞察|每週洞察|洞察報告|weekly insight)$/i.test(text)) return null;
   var ownerId = ownerLineUserId_();
   if (!ownerId || userId !== ownerId) return null;
-  var now = new Date();
-  return [textMessage_(insightReport_(insightWeekKey_(now), cfg.name)),
-    textMessage_('上週回顧\n\n' + insightReport_(insightWeekKey_(new Date(now.getTime() - 7 * 86400000)), cfg.name))];
+  var date = lastWeek ? new Date(Date.now() - 7 * 86400000) : new Date();
+  return [insightFlex_(insightWeekKey_(date), cfg.name, lastWeek)];
+}
+
+/**
+ * 週報儀表卡：大數字看總量與回答率，橫條看中英比例，再列熱門章節與下一步。
+ * 卡片內容與文字版 insightReport_ 使用同一份統計；altText 放文字摘要供通知預覽。
+ */
+function insightFlex_(week, name, isLastWeek) {
+  var stats = readInsight_(week), end = new Date(Date.parse(week + 'T00:00:00Z') + 6 * 86400000).toISOString().slice(0, 10);
+  var rate = stats.total ? Math.round(stats.answered / stats.total * 100) : 0;
+  function t(text, size, color, bold, extra) {
+    return Object.assign({ type: 'text', text: String(text), size: size, color: color, weight: bold ? 'bold' : 'regular', wrap: true }, extra || {});
+  }
+  function kpi(value, label, color) {
+    return { type: 'box', layout: 'vertical', flex: 1, paddingAll: '10px', cornerRadius: '10px', backgroundColor: '#F1F5F2', contents: [
+      t(value, 'xl', color || '#143D35', true, { align: 'center' }), t(label, 'xxs', '#687770', false, { align: 'center' })] };
+  }
+  var body = [t((isLastWeek ? '上週回顧｜' : '') + week.slice(5) + ' ～ ' + end.slice(5), 'xs', '#687770', false)];
+  if (!stats.total) {
+    body.push(t('這週還沒有訪客提問。', 'md', '#143D35', true, { margin: 'lg' }),
+      t('可以把 LINE 好友連結放進履歷、作品集或求職平台，增加曝光。', 'sm', '#53635E', false));
+  } else {
+    body.push({ type: 'box', layout: 'horizontal', spacing: 'sm', margin: 'md', contents: [
+      kpi(stats.total, '提問數'), kpi(rate + '%', '回答率', rate >= 80 ? '#23735B' : '#A15C2E'), kpi(stats.missing, '資料不足', stats.missing ? '#A15C2E' : '#143D35')] });
+    var zh = stats.languages.zh || 0, en = stats.languages.en || 0;
+    body.push(t('語言　中文 ' + zh + '・英文 ' + en, 'xs', '#31483D', true, { margin: 'lg' }),
+      { type: 'box', layout: 'horizontal', height: '8px', cornerRadius: '4px', margin: 'sm', backgroundColor: '#DDE6DF', contents: [
+        { type: 'box', layout: 'vertical', flex: Math.max(zh, 0), backgroundColor: '#23735B', contents: [] },
+        { type: 'box', layout: 'vertical', flex: Math.max(en, 0), backgroundColor: '#C9A46A', contents: [] }].filter(function (b) { return b.flex > 0; }) });
+    var sections = insightTop_(stats.sections, 3);
+    if (sections.length) {
+      body.push(t('最常被引用的章節', 'xs', '#31483D', true, { margin: 'lg' }));
+      sections.forEach(function (s, i) { body.push(t((i + 1) + '. ' + s, 'xs', '#53635E', false)); });
+    }
+    var intents = insightTop_(stats.intents, 2, INSIGHT_INTENT_LABELS_);
+    if (intents.length) body.push(t('交流目的（AI 判斷）', 'xs', '#31483D', true, { margin: 'lg' }), t(intents.join('、'), 'xs', '#53635E', false));
+    if (stats.missing) body.push({ type: 'box', layout: 'vertical', margin: 'lg', paddingAll: '10px', cornerRadius: '8px', backgroundColor: '#FBF1E7', contents: [
+      t('💡 有 ' + stats.missing + ' 題資料不足，按下方「處理待補充」就能直接補答。', 'xs', '#7A4520', false)] });
+  }
+  body.push(t('只統計次數，不保存訪客問題原文或身分。', 'xxs', '#8A9690', false, { margin: 'lg' }));
+  function button(label, data, primary) {
+    return { type: 'button', height: 'sm', style: primary ? 'primary' : 'secondary', color: primary ? '#23735B' : undefined,
+      action: { type: 'postback', label: label, data: data, displayText: label } };
+  }
+  var footer = [button(isLastWeek ? '本週洞察' : '上週回顧', isLastWeek ? '本週洞察' : 'insight:last', false)];
+  if (stats.missing) footer.unshift(button('處理待補充', '待補充', true));
+  var alt = (name || '履歷') + '｜' + (isLastWeek ? '上週' : '本週') + '提問 ' + stats.total + ' 題、回答率 ' + rate + '%';
+  return { type: 'flex', altText: alt, quickReply: quickReply_(), contents: { type: 'bubble', size: 'mega',
+    header: { type: 'box', layout: 'vertical', paddingAll: '16px', backgroundColor: '#143D35', contents: [
+      t('📊 每週提問洞察', 'md', '#FFFFFF', true), t(Array.from(name || '履歷').slice(0, 30).join(''), 'xxs', '#B7D8C9', false)] },
+    body: { type: 'box', layout: 'vertical', paddingAll: '16px', contents: body },
+    footer: { type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '12px', contents: footer } } };
 }
 
 
@@ -2392,6 +2450,8 @@ function ownerInsightMessages_(text, userId, cfg) {
  */
 
 var OWNER_FILL_SECONDS_ = 1800, OWNER_FILL_HEADING_ = '## 補充問答', OWNER_FILL_MAX_ = 10;
+// 本次事件是否由主人傳送；入口每個事件重設，供 Quick Reply 顯示主人專用按鈕。
+var MESSAGE_IS_OWNER_ = false;
 
 function ownerFillKey_(kind, userId) { return 'ownerfill:' + kind + ':' + sha256_(ScriptApp.getScriptId() + ':' + userId); }
 
@@ -2405,6 +2465,9 @@ function ownerCommandMessages_(event, text, cfg) {
   var insight = ownerInsightMessages_(text, event.source.userId, cfg);
   if (insight) return insight;
   if (/^(?:待補充|待補充問題|補充清單)$/.test(text)) return [ownerFillList_(event.source.userId, cfg)];
+  var pick = /^fill:pick:(\d{1,2})$/.exec(text);
+  // 按下題號按鈕時，LINE 已把「補充 N：」填進輸入框；這裡只提示下一步。
+  if (pick) return [textMessage_('✏️ 輸入框已填好「補充 ' + pick[1] + '：」，接著輸入答案送出，送出前會先讓你確認。')];
   var fill = /^補充\s*(\d{1,2})\s*[：:]\s*([\s\S]+)$/.exec(text);
   if (fill) return [ownerFillDraft_(event.source.userId, Number(fill[1]), fill[2].trim())];
   if (text === 'fill:cancel') {
@@ -2448,9 +2511,15 @@ function ownerFillList_(userId, cfg) {
   if (!pending.length) return textMessage_('目前沒有「待確認」的待補充問題 🎉');
   CacheService.getScriptCache().put(ownerFillKey_('list', userId),
     JSON.stringify(pending.map(function (p) { return p.question; })), OWNER_FILL_SECONDS_);
-  return textMessage_('待補充問題（' + pending.length + ' 題）\n\n' + pending.map(function (p, i) {
+  var message = textMessage_('待補充問題（' + pending.length + ' 題）\n\n' + pending.map(function (p, i) {
     return (i + 1) + '. ' + Array.from(p.question).slice(0, 80).join('') + '（' + p.count + ' 次）';
-  }).join('\n') + '\n\n回覆「補充 題號：答案」即可，例如：\n補充 1：我有普通小客車駕照。\n\n答案會原文寫進履歷公開區，請只寫願意公開的內容。若不想公開，可到文件把維護狀態改成「不公開」。');
+  }).join('\n') + '\n\n點下方「補第 N 題」，輸入框會自動填好格式，接著打答案送出即可。也可以直接輸入「補充 1：答案」。\n\n答案會原文寫進履歷公開區，請只寫願意公開的內容；不想公開的題目可到文件把維護狀態改成「不公開」。');
+  // 題號按鈕：postback 搭配 openKeyboard，LINE 會打開鍵盤並預先填入「補充 N：」。
+  message.quickReply = { items: pending.map(function (p, i) {
+    return { type: 'action', action: { type: 'postback', label: '補第 ' + (i + 1) + ' 題', data: 'fill:pick:' + (i + 1),
+      inputOption: 'openKeyboard', fillInText: '補充 ' + (i + 1) + '：' } };
+  }) };
+  return message;
 }
 
 /** 檢查題號與答案，建立待確認草稿；此時還不寫入文件。 */
@@ -2463,13 +2532,25 @@ function ownerFillDraft_(userId, number, answer) {
   answer = answer.replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, '').replace(/\n{3,}/g, '\n\n').trim();
   if (!answer || Array.from(answer).length > 500) return textMessage_('答案需為 1～500 字，請重新輸入。');
   cache.put(ownerFillKey_('draft', userId), JSON.stringify({ question: list[number - 1], answer: answer }), OWNER_FILL_SECONDS_);
-  var message = textMessage_('請確認要寫進履歷公開區的內容：\n\n問：' + list[number - 1] + '\n答：' + answer +
-    '\n\n確認後會寫入「' + OWNER_FILL_HEADING_.replace('## ', '') + '」段落並自動同步，訪客之後就能查到。');
-  message.quickReply = { items: [
-    { type: 'action', action: { type: 'postback', label: '確認寫入', data: 'fill:confirm', displayText: '確認寫入' } },
-    { type: 'action', action: { type: 'postback', label: '取消', data: 'fill:cancel', displayText: '取消' } }
-  ] };
-  return message;
+  return ownerFillPreview_(list[number - 1], answer);
+}
+
+/** 預覽卡：按鈕固定在卡片上，不會像 Quick Reply 一樣在下一則訊息後消失。 */
+function ownerFillPreview_(question, answer) {
+  function t(text, size, color, bold) { return { type: 'text', text: text, size: size, color: color, weight: bold ? 'bold' : 'regular', wrap: true }; }
+  function button(label, data, primary) {
+    return { type: 'button', height: 'sm', style: primary ? 'primary' : 'secondary', color: primary ? '#23735B' : undefined,
+      action: { type: 'postback', label: label, data: data, displayText: label } };
+  }
+  return { type: 'flex', altText: '請確認補充內容：' + Array.from(question).slice(0, 40).join(''), contents: { type: 'bubble', size: 'mega',
+    header: { type: 'box', layout: 'vertical', paddingAll: '14px', backgroundColor: '#143D35', contents: [t('✍️ 確認寫入履歷公開區', 'sm', '#FFFFFF', true)] },
+    body: { type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '16px', contents: [
+      t('訪客問題', 'xxs', '#687770', false), t(Array.from(question).slice(0, 200).join(''), 'sm', '#143D35', true),
+      { type: 'separator', margin: 'md', color: '#DDE6DF' },
+      t('你的答案（原文寫入）', 'xxs', '#687770', false), t(answer, 'sm', '#31483D', false),
+      t('確認後寫入「' + OWNER_FILL_HEADING_.replace('## ', '') + '」段落並自動同步，約需 10～20 秒。', 'xxs', '#8A9690', false)] },
+    footer: { type: 'box', layout: 'horizontal', spacing: 'sm', paddingAll: '12px', contents: [
+      button('取消', 'fill:cancel', false), button('確認寫入', 'fill:confirm', true)] } } };
 }
 
 /**
@@ -2523,6 +2604,8 @@ function ownerFillConfirm_(userId, cfg) {
     return textMessage_('寫入失敗（' + errorCode_(error) + '），履歷沒有變更。請檢查文件的 [[PUBLIC]] 標記後再試。');
   } finally { lock.releaseLock(); }
   var done = '已寫入履歷公開區：\n問：' + draft.question + '\n答：' + draft.answer;
+  // 同步需要 10～20 秒，先顯示 LINE 載入動畫，避免看起來像沒有反應。
+  startLoading_(userId, cfg);
   try {
     var result = syncKnowledgeBase_();
     if (result.status === 'ok' || result.status === 'unchanged') return textMessage_(done + '\n\n✅ 知識庫已同步，訪客現在可以查到這個答案。');
@@ -3319,6 +3402,7 @@ function handleEvent_(event, cfg) {
   if (claim === 'busy') throw new Error('EVENT_BUSY');
   try {
     MESSAGE_TOPICS_ = []; MESSAGE_LANGUAGE_ = 'zh';
+    MESSAGE_IS_OWNER_ = !!ownerLineUserId_() && event.source.userId === ownerLineUserId_();
     var messages, conversation = null, social = null, dialogueIntent = 'neutral', startedAt = Date.now(), switched = null, owner = null;
     var text = event.type === 'message' && event.message && event.message.type === 'text' ? event.message.text : '';
     if (event.type === 'postback') text = event.postback && event.postback.data || '';

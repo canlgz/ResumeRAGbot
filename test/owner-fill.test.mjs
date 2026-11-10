@@ -40,14 +40,21 @@ function setup() {
 test('owner lists pending questions, previews an answer, confirms, and the bot can answer after auto sync', () => {
   const f = setup();
   assert.match(f.textOf(f.send('你有駕照嗎？', 'visitor-1')), /沒有找到足夠的履歷資料/);
-  const list = f.textOf(f.send('待補充'));
-  assert.match(list, /1\. 你有駕照嗎？（1 次）/);
+  const list = f.send('待補充');
+  assert.match(f.textOf(list), /1\. 你有駕照嗎？（1 次）/);
+  // 題號按鈕會打開鍵盤並預填格式，主人只要接著打答案。
+  assert.deepEqual(list[0].quickReply.items[0].action, { type: 'postback', label: '補第 1 題', data: 'fill:pick:1',
+    inputOption: 'openKeyboard', fillInText: '補充 1：' });
+  assert.match(f.textOf(f.send('fill:pick:1', OWNER, true)), /輸入框已填好「補充 1：」/);
   const draft = f.send('補充 1：我有普通小客車駕照。');
-  assert.match(f.textOf(draft), /問：你有駕照嗎？\n答：我有普通小客車駕照。/);
-  assert.deepEqual(draft[0].quickReply.items.map(i => i.action.data), ['fill:confirm', 'fill:cancel']);
+  assert.equal(draft[0].type, 'flex');
+  assert.match(JSON.stringify(draft[0].contents), /你有駕照嗎？.*我有普通小客車駕照。/);
+  assert.deepEqual(draft[0].contents.footer.contents.map(b => b.action.data), ['fill:cancel', 'fill:confirm']);
   assert.doesNotMatch(f.state.text, /普通小客車駕照/, 'nothing is written before confirmation');
+  const before = f.state.calls.length;
   const done = f.textOf(f.send('fill:confirm', OWNER, true));
   assert.match(done, /知識庫已同步/);
+  assert(f.state.calls.slice(before).some(call => call.url.endsWith('/loading/start')), 'a loading animation covers the sync wait');
   assert.match(f.state.text, /## 補充問答\n問：你有駕照嗎？\n答：我有普通小客車駕照。\n\[\[\/PUBLIC\]\]/);
   assert.match(f.state.text, /已補充（LINE）/);
   assert.match(f.textOf(f.send('你有駕照嗎？', 'visitor-1')), /我有普通小客車駕照/);

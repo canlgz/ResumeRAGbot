@@ -82,11 +82,21 @@ test('the weekly report gives counts, top sections and concrete next steps', () 
 test('only the configured owner can open the report from LINE; visitors fall through to normal Q&A', () => {
   const f = setup({ properties: { OWNER_LINE_USER_ID: OWNER } });
   f.send('你做過什麼報表？', 'o1');
-  const owner = f.send('本週洞察', 'o2', OWNER);
-  assert.match(owner, /每週提問洞察/);
-  assert.match(owner, /上週回顧/);
+  f.send('本週洞察', 'o2', OWNER);
+  const card = f.state.calls.filter(call => call.url.endsWith('/message/reply')).at(-1).body.messages[0];
+  assert.equal(card.type, 'flex');
+  assert.match(card.altText, /本週提問 1 題、回答率 100%/);
+  assert.match(JSON.stringify(card.contents), /每週提問洞察/);
+  assert.deepEqual(card.contents.footer.contents.map(b => b.action.data), ['insight:last']);
+  // 主人聊天時 Quick Reply 多出主人專用按鈕；訪客看不到。
+  assert.deepEqual(card.quickReply.items.slice(-2).map(i => i.action.data), ['本週洞察', '待補充']);
+  f.send('insight:last', 'o2b', OWNER);
+  const last = f.state.calls.filter(call => call.url.endsWith('/message/reply')).at(-1).body.messages[0];
+  assert.match(JSON.stringify(last.contents), /上週回顧/);
   const visitor = f.send('本週洞察', 'o3', 'visitor-2');
   assert.doesNotMatch(visitor, /每週提問洞察/);
+  const visitorReply = f.state.calls.filter(call => call.url.endsWith('/message/reply')).at(-1).body.messages[0];
+  assert(!visitorReply.quickReply.items.some(i => /洞察|待補充/.test(i.action.label)));
   assert.equal(f.stats().total, 2, 'the owner command itself is not counted; the visitor attempt is a normal question');
 });
 

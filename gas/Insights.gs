@@ -124,12 +124,66 @@ function sendWeeklyInsight_() {
   return result;
 }
 
-/** 主人在 LINE 輸入「本週洞察」時回覆本週與上週報告；只認 OWNER_LINE_USER_ID，訪客輸入同樣文字視為一般問題。 */
+/**
+ * 主人在 LINE 輸入「本週洞察」時回覆儀表卡片；按「上週回顧」看上週。
+ * 只認 OWNER_LINE_USER_ID，訪客輸入同樣文字視為一般問題。
+ */
 function ownerInsightMessages_(text, userId, cfg) {
-  if (!/^(?:本週洞察|每週洞察|洞察報告|weekly insight)$/i.test(text)) return null;
+  var lastWeek = text === 'insight:last';
+  if (!lastWeek && !/^(?:本週洞察|每週洞察|洞察報告|weekly insight)$/i.test(text)) return null;
   var ownerId = ownerLineUserId_();
   if (!ownerId || userId !== ownerId) return null;
-  var now = new Date();
-  return [textMessage_(insightReport_(insightWeekKey_(now), cfg.name)),
-    textMessage_('上週回顧\n\n' + insightReport_(insightWeekKey_(new Date(now.getTime() - 7 * 86400000)), cfg.name))];
+  var date = lastWeek ? new Date(Date.now() - 7 * 86400000) : new Date();
+  return [insightFlex_(insightWeekKey_(date), cfg.name, lastWeek)];
+}
+
+/**
+ * 週報儀表卡：大數字看總量與回答率，橫條看中英比例，再列熱門章節與下一步。
+ * 卡片內容與文字版 insightReport_ 使用同一份統計；altText 放文字摘要供通知預覽。
+ */
+function insightFlex_(week, name, isLastWeek) {
+  var stats = readInsight_(week), end = new Date(Date.parse(week + 'T00:00:00Z') + 6 * 86400000).toISOString().slice(0, 10);
+  var rate = stats.total ? Math.round(stats.answered / stats.total * 100) : 0;
+  function t(text, size, color, bold, extra) {
+    return Object.assign({ type: 'text', text: String(text), size: size, color: color, weight: bold ? 'bold' : 'regular', wrap: true }, extra || {});
+  }
+  function kpi(value, label, color) {
+    return { type: 'box', layout: 'vertical', flex: 1, paddingAll: '10px', cornerRadius: '10px', backgroundColor: '#F1F5F2', contents: [
+      t(value, 'xl', color || '#143D35', true, { align: 'center' }), t(label, 'xxs', '#687770', false, { align: 'center' })] };
+  }
+  var body = [t((isLastWeek ? '上週回顧｜' : '') + week.slice(5) + ' ～ ' + end.slice(5), 'xs', '#687770', false)];
+  if (!stats.total) {
+    body.push(t('這週還沒有訪客提問。', 'md', '#143D35', true, { margin: 'lg' }),
+      t('可以把 LINE 好友連結放進履歷、作品集或求職平台，增加曝光。', 'sm', '#53635E', false));
+  } else {
+    body.push({ type: 'box', layout: 'horizontal', spacing: 'sm', margin: 'md', contents: [
+      kpi(stats.total, '提問數'), kpi(rate + '%', '回答率', rate >= 80 ? '#23735B' : '#A15C2E'), kpi(stats.missing, '資料不足', stats.missing ? '#A15C2E' : '#143D35')] });
+    var zh = stats.languages.zh || 0, en = stats.languages.en || 0;
+    body.push(t('語言　中文 ' + zh + '・英文 ' + en, 'xs', '#31483D', true, { margin: 'lg' }),
+      { type: 'box', layout: 'horizontal', height: '8px', cornerRadius: '4px', margin: 'sm', backgroundColor: '#DDE6DF', contents: [
+        { type: 'box', layout: 'vertical', flex: Math.max(zh, 0), backgroundColor: '#23735B', contents: [] },
+        { type: 'box', layout: 'vertical', flex: Math.max(en, 0), backgroundColor: '#C9A46A', contents: [] }].filter(function (b) { return b.flex > 0; }) });
+    var sections = insightTop_(stats.sections, 3);
+    if (sections.length) {
+      body.push(t('最常被引用的章節', 'xs', '#31483D', true, { margin: 'lg' }));
+      sections.forEach(function (s, i) { body.push(t((i + 1) + '. ' + s, 'xs', '#53635E', false)); });
+    }
+    var intents = insightTop_(stats.intents, 2, INSIGHT_INTENT_LABELS_);
+    if (intents.length) body.push(t('交流目的（AI 判斷）', 'xs', '#31483D', true, { margin: 'lg' }), t(intents.join('、'), 'xs', '#53635E', false));
+    if (stats.missing) body.push({ type: 'box', layout: 'vertical', margin: 'lg', paddingAll: '10px', cornerRadius: '8px', backgroundColor: '#FBF1E7', contents: [
+      t('💡 有 ' + stats.missing + ' 題資料不足，按下方「處理待補充」就能直接補答。', 'xs', '#7A4520', false)] });
+  }
+  body.push(t('只統計次數，不保存訪客問題原文或身分。', 'xxs', '#8A9690', false, { margin: 'lg' }));
+  function button(label, data, primary) {
+    return { type: 'button', height: 'sm', style: primary ? 'primary' : 'secondary', color: primary ? '#23735B' : undefined,
+      action: { type: 'postback', label: label, data: data, displayText: label } };
+  }
+  var footer = [button(isLastWeek ? '本週洞察' : '上週回顧', isLastWeek ? '本週洞察' : 'insight:last', false)];
+  if (stats.missing) footer.unshift(button('處理待補充', '待補充', true));
+  var alt = (name || '履歷') + '｜' + (isLastWeek ? '上週' : '本週') + '提問 ' + stats.total + ' 題、回答率 ' + rate + '%';
+  return { type: 'flex', altText: alt, quickReply: quickReply_(), contents: { type: 'bubble', size: 'mega',
+    header: { type: 'box', layout: 'vertical', paddingAll: '16px', backgroundColor: '#143D35', contents: [
+      t('📊 每週提問洞察', 'md', '#FFFFFF', true), t(Array.from(name || '履歷').slice(0, 30).join(''), 'xxs', '#B7D8C9', false)] },
+    body: { type: 'box', layout: 'vertical', paddingAll: '16px', contents: body },
+    footer: { type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '12px', contents: footer } } };
 }

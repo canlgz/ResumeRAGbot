@@ -117,6 +117,7 @@ function handleEvent_(event, cfg) {
   if (claim === 'busy') throw new Error('EVENT_BUSY');
   try {
     MESSAGE_TOPICS_ = []; MESSAGE_LANGUAGE_ = 'zh';
+    MESSAGE_IS_OWNER_ = !!ownerLineUserId_() && event.source.userId === ownerLineUserId_();
     var messages, conversation = null, social = null, dialogueIntent = 'neutral', startedAt = Date.now(), switched = null, owner = null;
     var text = event.type === 'message' && event.message && event.message.type === 'text' ? event.message.text : '';
     if (event.type === 'postback') text = event.postback && event.postback.data || '';

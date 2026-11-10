@@ -7,6 +7,8 @@
  */
 
 var OWNER_FILL_SECONDS_ = 1800, OWNER_FILL_HEADING_ = '## 補充問答', OWNER_FILL_MAX_ = 10;
+// 本次事件是否由主人傳送；入口每個事件重設，供 Quick Reply 顯示主人專用按鈕。
+var MESSAGE_IS_OWNER_ = false;
 
 function ownerFillKey_(kind, userId) { return 'ownerfill:' + kind + ':' + sha256_(ScriptApp.getScriptId() + ':' + userId); }
 
@@ -20,6 +22,9 @@ function ownerCommandMessages_(event, text, cfg) {
   var insight = ownerInsightMessages_(text, event.source.userId, cfg);
   if (insight) return insight;
   if (/^(?:待補充|待補充問題|補充清單)$/.test(text)) return [ownerFillList_(event.source.userId, cfg)];
+  var pick = /^fill:pick:(\d{1,2})$/.exec(text);
+  // 按下題號按鈕時，LINE 已把「補充 N：」填進輸入框；這裡只提示下一步。
+  if (pick) return [textMessage_('✏️ 輸入框已填好「補充 ' + pick[1] + '：」，接著輸入答案送出，送出前會先讓你確認。')];
   var fill = /^補充\s*(\d{1,2})\s*[：:]\s*([\s\S]+)$/.exec(text);
   if (fill) return [ownerFillDraft_(event.source.userId, Number(fill[1]), fill[2].trim())];
   if (text === 'fill:cancel') {
@@ -63,9 +68,15 @@ function ownerFillList_(userId, cfg) {
   if (!pending.length) return textMessage_('目前沒有「待確認」的待補充問題 🎉');
   CacheService.getScriptCache().put(ownerFillKey_('list', userId),
     JSON.stringify(pending.map(function (p) { return p.question; })), OWNER_FILL_SECONDS_);
-  return textMessage_('待補充問題（' + pending.length + ' 題）\n\n' + pending.map(function (p, i) {
+  var message = textMessage_('待補充問題（' + pending.length + ' 題）\n\n' + pending.map(function (p, i) {
     return (i + 1) + '. ' + Array.from(p.question).slice(0, 80).join('') + '（' + p.count + ' 次）';
-  }).join('\n') + '\n\n回覆「補充 題號：答案」即可，例如：\n補充 1：我有普通小客車駕照。\n\n答案會原文寫進履歷公開區，請只寫願意公開的內容。若不想公開，可到文件把維護狀態改成「不公開」。');
+  }).join('\n') + '\n\n點下方「補第 N 題」，輸入框會自動填好格式，接著打答案送出即可。也可以直接輸入「補充 1：答案」。\n\n答案會原文寫進履歷公開區，請只寫願意公開的內容；不想公開的題目可到文件把維護狀態改成「不公開」。');
+  // 題號按鈕：postback 搭配 openKeyboard，LINE 會打開鍵盤並預先填入「補充 N：」。
+  message.quickReply = { items: pending.map(function (p, i) {
+    return { type: 'action', action: { type: 'postback', label: '補第 ' + (i + 1) + ' 題', data: 'fill:pick:' + (i + 1),
+      inputOption: 'openKeyboard', fillInText: '補充 ' + (i + 1) + '：' } };
+  }) };
+  return message;
 }
 
 /** 檢查題號與答案，建立待確認草稿；此時還不寫入文件。 */
@@ -78,13 +89,25 @@ function ownerFillDraft_(userId, number, answer) {
   answer = answer.replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, '').replace(/\n{3,}/g, '\n\n').trim();
   if (!answer || Array.from(answer).length > 500) return textMessage_('答案需為 1～500 字，請重新輸入。');
   cache.put(ownerFillKey_('draft', userId), JSON.stringify({ question: list[number - 1], answer: answer }), OWNER_FILL_SECONDS_);
-  var message = textMessage_('請確認要寫進履歷公開區的內容：\n\n問：' + list[number - 1] + '\n答：' + answer +
-    '\n\n確認後會寫入「' + OWNER_FILL_HEADING_.replace('## ', '') + '」段落並自動同步，訪客之後就能查到。');
-  message.quickReply = { items: [
-    { type: 'action', action: { type: 'postback', label: '確認寫入', data: 'fill:confirm', displayText: '確認寫入' } },
-    { type: 'action', action: { type: 'postback', label: '取消', data: 'fill:cancel', displayText: '取消' } }
-  ] };
-  return message;
+  return ownerFillPreview_(list[number - 1], answer);
+}
+
+/** 預覽卡：按鈕固定在卡片上，不會像 Quick Reply 一樣在下一則訊息後消失。 */
+function ownerFillPreview_(question, answer) {
+  function t(text, size, color, bold) { return { type: 'text', text: text, size: size, color: color, weight: bold ? 'bold' : 'regular', wrap: true }; }
+  function button(label, data, primary) {
+    return { type: 'button', height: 'sm', style: primary ? 'primary' : 'secondary', color: primary ? '#23735B' : undefined,
+      action: { type: 'postback', label: label, data: data, displayText: label } };
+  }
+  return { type: 'flex', altText: '請確認補充內容：' + Array.from(question).slice(0, 40).join(''), contents: { type: 'bubble', size: 'mega',
+    header: { type: 'box', layout: 'vertical', paddingAll: '14px', backgroundColor: '#143D35', contents: [t('✍️ 確認寫入履歷公開區', 'sm', '#FFFFFF', true)] },
+    body: { type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '16px', contents: [
+      t('訪客問題', 'xxs', '#687770', false), t(Array.from(question).slice(0, 200).join(''), 'sm', '#143D35', true),
+      { type: 'separator', margin: 'md', color: '#DDE6DF' },
+      t('你的答案（原文寫入）', 'xxs', '#687770', false), t(answer, 'sm', '#31483D', false),
+      t('確認後寫入「' + OWNER_FILL_HEADING_.replace('## ', '') + '」段落並自動同步，約需 10～20 秒。', 'xxs', '#8A9690', false)] },
+    footer: { type: 'box', layout: 'horizontal', spacing: 'sm', paddingAll: '12px', contents: [
+      button('取消', 'fill:cancel', false), button('確認寫入', 'fill:confirm', true)] } } };
 }
 
 /**
@@ -138,6 +161,8 @@ function ownerFillConfirm_(userId, cfg) {
     return textMessage_('寫入失敗（' + errorCode_(error) + '），履歷沒有變更。請檢查文件的 [[PUBLIC]] 標記後再試。');
   } finally { lock.releaseLock(); }
   var done = '已寫入履歷公開區：\n問：' + draft.question + '\n答：' + draft.answer;
+  // 同步需要 10～20 秒，先顯示 LINE 載入動畫，避免看起來像沒有反應。
+  startLoading_(userId, cfg);
   try {
     var result = syncKnowledgeBase_();
     if (result.status === 'ok' || result.status === 'unchanged') return textMessage_(done + '\n\n✅ 知識庫已同步，訪客現在可以查到這個答案。');

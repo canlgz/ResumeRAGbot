@@ -15,6 +15,10 @@ function quickReply_() {
   // v3 候選：最後固定一顆語言切換，任何訊息下都能隨時改語言。
   var other = MESSAGE_LANGUAGE_ === 'en' ? { label: '中文', data: 'lang:zh' } : { label: 'English', data: 'lang:en' };
   items.push({ type: 'action', action: { type: 'postback', label: other.label, data: other.data, displayText: other.label } });
+  // 主人專用：只在主人本人聊天時出現，訪客看不到。
+  if (MESSAGE_IS_OWNER_) ['📊 本週洞察', '✍️ 待補充'].forEach(function (label) {
+    items.push({ type: 'action', action: { type: 'postback', label: label, data: label.slice(3), displayText: label.slice(3) } });
+  });
   return { items: items };
 }
 
