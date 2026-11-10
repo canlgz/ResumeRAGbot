@@ -21,7 +21,8 @@ function readConversation_(userId, fingerprint) {
   var value;
   try { value = JSON.parse(CacheService.getScriptCache().get(conversationKey_(userId)) || 'null'); } catch (_) {}
   if (!value || !Number.isFinite(value.expiresAt) || value.expiresAt <= Date.now() || value.fingerprint !== fingerprint ||
-      !Array.isArray(value.works) || typeof value.lastQuestion !== 'string') {
+      !Array.isArray(value.works) || typeof value.lastQuestion !== 'string' ||
+      (value.contextId && !CONTEXT_INTROS_[value.contextId])) {
     try { clearConversation_(userId); } catch (_) { safeLog_('CONVERSATION_CACHE_UNAVAILABLE'); }
     return null;
   }
@@ -67,7 +68,7 @@ function saveConversation_(userId, fingerprint, request, keys, startedAt) {
     if (!works.length && request.focus) works = [request.focus];
     var focus = request.focus || (works.length === 1 ? works[0] : null);
     cache.put(key, JSON.stringify({ fingerprint: fingerprint, works: works, focus: focus,
-      topicId: request.topicId || null,
+      topicId: request.topicId || null, contextId: request.contextId || null,
       lastQuestion: Array.from(request.memoryAnchor || request.previousQuestion || request.question).slice(0, 800).join(''), savedAt: Date.now(),
       expiresAt: Date.now() + 600000 }), 600);
   } finally { lock.releaseLock(); }

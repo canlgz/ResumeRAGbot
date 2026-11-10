@@ -8,7 +8,7 @@
  * 回傳要送出的訊息與待保存記憶；此處不直接傳訊息。
  * 依目前主題或作品限定檢索來源，選擇不明時先提供作品選擇卡。
  */
-function answerLineConversation_(question, cfg, originalQuestion, userId, explicitKey, gallery, topicId, prepared) {
+function answerLineConversation_(question, cfg, originalQuestion, userId, explicitKey, gallery, topicId, prepared, suggested) {
   var index = prepared ? prepared.index : loadIndex_(cfg);
   if (!index) return { messages: [textMessage_('履歷資料正在準備中，請稍後再來，或直接與本人聯繫。')] };
   var source = prepared ? prepared.source : readPublicSource_(cfg);
@@ -31,6 +31,8 @@ function answerLineConversation_(question, cfg, originalQuestion, userId, explic
     topic.kind === 'overview' ? '快速一覽：請用四至五個短點概覽履歷主人的職涯定位、經驗、核心能力及代表成果或作品，每點一句，不展開技術細節。' :
     '請介紹「' + topic.label + '」相關履歷內容，挑選一至兩項已記載的經驗或成果。';
   var request = conversationRequest_(question, explicitTopic ? null : memory, index, explicitKey);
+  request.contextId = memory && memory.contextId || null;
+  request.noFeedback = Boolean(suggested);
   if (!topic && !explicitKey && request.previousQuestion && memory && memory.topicId) {
     var inherited = topics.find(function (entry) { return entry.id === memory.topicId; });
     // 基本入口的簡介／摘要格式只用於按下入口當次，後續追問可自然深入。
