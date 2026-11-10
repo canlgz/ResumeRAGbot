@@ -8,7 +8,7 @@
  * 回傳要送出的訊息與待保存記憶；此處不直接傳訊息。
  * 依目前主題或作品限定檢索來源，選擇不明時先提供作品選擇卡。
  */
-function answerLineConversation_(question, cfg, originalQuestion, userId, explicitKey, gallery, topicId, prepared) {
+function answerLineConversation_(question, cfg, originalQuestion, userId, explicitKey, gallery, topicId, prepared, language) {
   var index = prepared ? prepared.index : loadIndex_(cfg);
   if (!index) return { messages: [textMessage_('履歷資料正在準備中，請稍後再來，或直接與本人聯繫。')] };
   var source = prepared ? prepared.source : readPublicSource_(cfg);
@@ -31,6 +31,8 @@ function answerLineConversation_(question, cfg, originalQuestion, userId, explic
     topic.kind === 'overview' ? '快速一覽：請用四至五個短點概覽履歷主人的職涯定位、經驗、核心能力及代表成果或作品，每點一句，不展開技術細節。' :
     '請介紹「' + topic.label + '」相關履歷內容，挑選一至兩項已記載的經驗或成果。';
   var request = conversationRequest_(question, explicitTopic ? null : memory, index, explicitKey);
+  // v3 候選：回答語言隨本輪請求帶入，不寫進短期記憶，避免改變追問判斷。
+  request.answerLanguage = language === 'en' ? 'en' : 'zh';
   if (!topic && !explicitKey && request.previousQuestion && memory && memory.topicId) {
     var inherited = topics.find(function (entry) { return entry.id === memory.topicId; });
     // 基本入口的簡介／摘要格式只用於按下入口當次，後續追問可自然深入。
@@ -73,7 +75,7 @@ function answerLineConversation_(question, cfg, originalQuestion, userId, explic
   var result = answerResult_(question, cfg, originalQuestion, request, { index: index, source: source });
   if (result.status !== 'answered') {
     var missingMessages = [textMessage_(result.message)];
-    return { messages: missingMessages, answerStatus: result.status, fingerprint: result.status === 'missing' ? index.fingerprint : null,
+    return { messages: missingMessages, answerStatus: result.status, language: request.answerLanguage, fingerprint: result.status === 'missing' ? index.fingerprint : null,
       request: request, works: request.focus ? [request.focus] : [] };
   }
   var messages = [textMessage_(result.answerText), textMessage_(result.source)];
@@ -83,6 +85,7 @@ function answerLineConversation_(question, cfg, originalQuestion, userId, explic
     var portfolio = portfolioMessage_(cards);
     if (portfolio) messages.push(portfolio);
   } catch (error) { safeLog_(errorCode_(error)); }
-  return { messages: messages.slice(0, 5), answerStatus: 'answered', dialogueIntent: result.dialogueIntent, fingerprint: index.fingerprint, request: request,
+  return { messages: messages.slice(0, 5), answerStatus: 'answered', dialogueIntent: result.dialogueIntent,
+    sections: result.sections || [], language: request.answerLanguage, fingerprint: index.fingerprint, request: request,
     works: cards.length ? cards.map(function (entry) { return entry.imageKey; }) : result.imageKeys };
 }

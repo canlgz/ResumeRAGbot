@@ -154,7 +154,12 @@ export function createGas(options = {}) {
     } },
     ScriptApp: { getScriptId: () => options.scriptId ?? 'test-script',
       getService: () => ({ getUrl: () => options.serviceUrl ?? null }),
-      getProjectTriggers: () => [], newTrigger: () => ({ timeBased: () => ({ everyHours: () => ({ create() {} }) }) }) }
+      WeekDay: { MONDAY: 'MONDAY' },
+      getProjectTriggers: () => state.triggers || [], deleteTrigger: trigger => { state.triggers = (state.triggers || []).filter(t => t !== trigger); },
+      newTrigger: handler => ({ timeBased: () => {
+        const add = schedule => ({ create() { (state.triggers = state.triggers || []).push({ getHandlerFunction: () => handler, schedule }); } });
+        return { everyHours: hours => add({ hours }), onWeekDay: day => ({ atHour: hour => add({ day, hour }) }) };
+      } }) }
   });
   const dir = new URL('../gas/', import.meta.url);
   const sources = options.sourceMode === 'bundle' ? [new URL('../dist/Code.gs', import.meta.url)]

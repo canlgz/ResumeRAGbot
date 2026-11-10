@@ -117,7 +117,7 @@ function handleEvent_(event, cfg) {
   if (claim === 'busy') throw new Error('EVENT_BUSY');
   try {
     MESSAGE_TOPICS_ = [];
-    var messages, conversation = null, social = null, dialogueIntent = 'neutral', startedAt = Date.now();
+    var messages, conversation = null, social = null, dialogueIntent = 'neutral', startedAt = Date.now(), switched = null, ownerInsight = null;
     var text = event.type === 'message' && event.message && event.message.type === 'text' ? event.message.text : '';
     if (event.type === 'postback') text = event.postback && event.postback.data || '';
     text = typeof text === 'string' ? text.trim() : '';
@@ -130,6 +130,11 @@ function handleEvent_(event, cfg) {
       } catch (_) { MESSAGE_TOPICS_ = []; }
     }
     if (!cfg.enabled) messages = [textMessage_('履歷助理目前暫停服務，請稍後再試。')];
+    else if ((ownerInsight = ownerInsightMessages_(text, event.source.userId, cfg))) messages = ownerInsight;
+    else if (event.type === 'message' && (switched = languageCommand_(text))) {
+      saveLanguagePreference_(event.source.userId, switched);
+      messages = [textMessage_(languageSwitchedText_(switched))];
+    }
     else if ((messages = handleContact_(event, text, cfg, prepared))) { /* 聯繫與邀約不經 RAG。 */ }
     else if (/^(清除對話|重新開始|reset)$/i.test(text)) {
       clearConversation_(event.source.userId);
@@ -159,28 +164,38 @@ function handleEvent_(event, cfg) {
         '聯絡方式': '履歷提供哪些公開聯絡方式與作品連結？請保留原文。'
       };
       startLoading_(event.source.userId, cfg);
+      // 按鈕與固定入口文字沿用訪客的語言偏好；手打的問題依內容判斷中英文。
+      var isButton = event.type === 'postback' || Object.prototype.hasOwnProperty.call(questions, text) ||
+        /^(作品圖庫|作品集)$/.test(text) || MESSAGE_TOPICS_.some(function (topic) { return topic.label === text; });
+      var language = visitorLanguage_(text, event.source.userId, isButton);
       try {
         var selected = /^work:([a-f0-9]{64})$/.exec(text);
         var selectedTopic = /^topic:([a-f0-9]{16})$/.exec(text);
         var question = selected ? '請介紹這件作品的可見內容，以及履歷明確記載的本人角色。' : selectedTopic ? '請介紹所選主題的履歷內容。' : questions[text] || text;
         conversation = answerLineConversation_(question, cfg, selected ? '詢問選定作品' : text,
-          event.source.userId, selected && selected[1], /^(作品圖庫|作品集|gallery)$/i.test(text), selectedTopic && selectedTopic[1], prepared);
+          event.source.userId, selected && selected[1], /^(作品圖庫|作品集|gallery)$/i.test(text), selectedTopic && selectedTopic[1], prepared, language);
         messages = conversation.messages;
       }
       catch (error) {
         safeLog_(errorCode_(error));
         MESSAGE_TOPICS_ = [];
         messages = [textMessage_(ragErrorMessage_(error))];
+        conversation = { error: true, language: language };
       }
     }
     // 先有正確的內容／操作結果，再決定貼圖；錯誤、草稿及首頁不因裝飾多加一張。
-    if (conversation) dialogueIntent = dialogueStickerIntent_(text, conversation);
+    if (conversation && !conversation.error) dialogueIntent = dialogueStickerIntent_(text, conversation);
     else if (cfg.enabled && messages[0] && messages[0].type === 'flex' && (text === 'nav:contact' || contactIntent_(text))) dialogueIntent = 'contact';
     else if (messages[0] && /^邀約已存入/.test(messages[0].text || '')) dialogueIntent = 'invitation_received';
     var sticker = contextualSticker_(messages, dialogueIntent, event.source.userId);
     if (sticker) messages = messages.concat([sticker]);
     var result = lineReply_(event.replyToken, messages, cfg);
     if (result === 'replied' && sticker) rememberDialogueSticker_(dialogueIntent, event.source.userId);
+    // v3 候選：回覆成功後才累加匿名統計；只記狀態、語言、章節與交流目的，不記問題原文。
+    if (result === 'replied' && conversation && (conversation.error || ['answered', 'missing'].indexOf(conversation.answerStatus) >= 0)) {
+      recordInsight_({ status: conversation.error ? 'error' : conversation.answerStatus, language: conversation.language,
+        sections: conversation.sections, intent: conversation.dialogueIntent });
+    }
     if (result === 'replied' && conversation && conversation.fingerprint && conversation.request) {
       try { saveConversation_(event.source.userId, conversation.fingerprint, conversation.request, conversation.works, startedAt); }
       catch (error) { safeLog_(errorCode_(error)); }
