@@ -8,7 +8,7 @@ const classifications=f=>f.state.calls.filter(c=>c.body?.generationConfig?.respo
 test('the two essential entries are always visible and the homepage uses their exact same order',()=>{
   const {gas,state}=createGas();gas.handleEvent_(event('選單','no-index'),gas.config_());
   const welcome=state.calls.find(c=>c.url.endsWith('/message/reply')).body.messages[0];
-  assert.deepEqual(welcome.quickReply.items.map(i=>i.action.label),['我是誰','快速一覽']);
+  assert.deepEqual(welcome.quickReply.items.filter(i=>!/^lang:/.test(i.action.data)).map(i=>i.action.label),['我是誰','快速一覽']);
   assert.deepEqual(welcome.contents.contents[2].body.contents.slice(2).flatMap(row=>row.contents.map(b=>b.action.label)),['我是誰','快速一覽']);
 });
 
@@ -158,8 +158,8 @@ test('sync generates adaptive themes once; profile and adaptive sources are excl
   const replies=f.state.calls.filter(c=>c.url.endsWith('/message/reply'));
   const expected=JSON.stringify(menu.map(t=>t.label));
   for(const call of replies)for(const message of call.body.messages){if(message.type==='sticker')continue;
-    assert.equal(JSON.stringify(message.quickReply.items.map(i=>i.action.label)),expected);
-    assert(message.quickReply.items.every(i=>i.action.type==='postback'&&/^topic:/.test(i.action.data)));
+    assert.equal(JSON.stringify(message.quickReply.items.filter(i=>!/^lang:/.test(i.action.data)).map(i=>i.action.label)),expected);
+    assert(message.quickReply.items.filter(i=>!/^lang:/.test(i.action.data)).every(i=>i.action.type==='postback'&&/^topic:/.test(i.action.data)));
   }
 });
 
@@ -188,7 +188,7 @@ test('topic buttons constrain answers and follow-ups to their assigned sources; 
   f.nodes.splice(9,0,paragraph('新增的職涯成果。'));
   f.gas.handleEvent_(event('選單','beforeSync'),f.gas.config_());
   const reply=f.state.calls.filter(c=>c.url.endsWith('/message/reply')).at(-1).body.messages[0];
-  assert.deepEqual(reply.quickReply.items.map(item=>item.action.label),['我是誰','快速一覽']);
+  assert.deepEqual(reply.quickReply.items.filter(item=>!/^lang:/.test(item.action.data)).map(item=>item.action.label),['我是誰','快速一覽']);
   f.gas.syncKnowledgeBase();assert.notEqual(index(f).quickTopics.revision,idx.quickTopics.revision);assert.equal(classifications(f).length,2);
   f.gas.handleEvent_({...event('','oldTopic'),type:'postback',postback:{data:'topic:'+topic.id}},f.gas.config_());
   const oldReply=f.state.calls.filter(c=>c.url.endsWith('/message/reply')).at(-1).body.messages[0];assert.match(oldReply.text,/主題已更新/);

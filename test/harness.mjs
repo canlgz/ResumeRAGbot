@@ -46,6 +46,7 @@ export function createGas(options = {}) {
       getText: () => nodes.map(n => n.getText()).join('\n'),
       setText(text) { changing(); nodes.splice(0, nodes.length, ...text.split('\n').map(paragraph)); changed(); return this; },
       appendParagraph(text) { changing(); const p = paragraph(text); nodes.push(p); changed(); return p; },
+      insertParagraph(i, text) { changing(); const p = paragraph(text); nodes.splice(i, 0, p); changed(); return p; },
       insertTable(i, values) { changing(); const t = table(values); nodes.splice(i, 0, t); changed(); return t; }
     };
     nodes.push(...text.split('\n').map(paragraph));

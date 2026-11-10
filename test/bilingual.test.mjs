@@ -97,3 +97,60 @@ test('missing evidence in English mode explains in English and still records the
   assert.match(reply, /could not find enough information/);
   assert.match(f.state.text, /Do you have a driving license\?/, 'the unanswered question is still written to the owner maintenance table');
 });
+
+test('following the bot first shows a language picker instead of the homepage', () => {
+  const f = setup();
+  const e = event('', 'follow-1'); e.type = 'follow'; delete e.message;
+  f.gas.doPost(input([e]));
+  const reply = f.state.calls.filter(call => call.url.endsWith('/message/reply')).at(-1).body.messages;
+  assert.equal(reply.length, 1);
+  assert.match(reply[0].altText, /請選擇語言 \/ Please choose a language/);
+  assert.deepEqual(reply[0].contents.footer.contents.map(b => b.action.data), ['lang:zh', 'lang:en']);
+  assert.equal(f.state.calls.filter(call => call.url.includes('generativelanguage')).length, 0);
+});
+
+test('choosing English shows an English homepage and the quick reply always offers switching back', () => {
+  const f = setup();
+  f.send('lang:en', 'l1', true);
+  const reply = f.state.calls.filter(call => call.url.endsWith('/message/reply')).at(-1).body.messages;
+  assert.match(reply[0].text, /English mode is on/);
+  const home = reply[1];
+  assert.equal(home.type, 'flex');
+  assert.deepEqual(home.contents.contents.map(card => card.header.contents[0].text), ['HELLO / ABOUT ME', 'ABOUT / TRAITS', 'EXPLORE / RESUME']);
+  const labels = home.quickReply.items.map(i => i.action.label);
+  assert.deepEqual(labels.slice(0, 2), ['About me', 'Quick overview']);
+  assert.deepEqual(home.quickReply.items.at(-1).action, { type: 'postback', label: '中文', data: 'lang:zh', displayText: '中文' });
+  f.send('lang:zh', 'l2', true);
+  const zh = f.state.calls.filter(call => call.url.endsWith('/message/reply')).at(-1).body.messages[1];
+  assert.equal(zh.contents.contents[0].header.contents[0].text, 'HELLO / 認識我');
+  assert.equal(zh.quickReply.items.at(-1).action.data, 'lang:en');
+});
+
+test('typed menu words keep the current language instead of flipping it', () => {
+  const f = setup();
+  f.send('lang:en', 'k1', true);
+  f.send('選單', 'k2');
+  const home = f.state.calls.filter(call => call.url.endsWith('/message/reply')).at(-1).body.messages[0];
+  assert.equal(home.contents.contents[0].header.contents[0].text, 'HELLO / ABOUT ME');
+});
+
+test('adaptive topics use their synced English label when present and fall back to Chinese otherwise', () => {
+  const { gas } = createGas();
+  gas.MESSAGE_LANGUAGE_ = 'en';
+  assert.equal(gas.topicLabel_({ kind: 'adaptive', category: '專案', label: '專案：好河伴', labelEn: 'River Buddy' }), 'Project: River Buddy');
+  assert.equal(gas.topicLabel_({ kind: 'adaptive', category: '專案', label: '專案：好河伴', labelEn: '' }), '專案：好河伴');
+  assert.equal(gas.topicLabel_({ kind: 'intro', label: '我是誰' }), 'About me');
+  gas.MESSAGE_LANGUAGE_ = 'zh';
+  assert.equal(gas.topicLabel_({ kind: 'intro', label: '我是誰' }), '我是誰');
+  assert.equal(gas.englishText_('好河伴', 16), '');
+  assert.equal(gas.englishText_('River Buddy', 16), 'River Buddy');
+  assert.equal(gas.englishText_('A very long English label', 16), '');
+});
+
+test('Gemini 503 in English mode explains in English with the status code', () => {
+  const f = setup();
+  f.send('English', 'g0');
+  const original = f.state.response;
+  f.state.response = call => call.url.endsWith(':generateContent') ? { status: 503, body: {} } : original(call);
+  assert.match(f.send('What reports have you built?', 'g1'), /AI service is busy right now \(HTTP_503\)/);
+});

@@ -73,6 +73,12 @@ function missingAnswer_(recorded, language) {
  */
 function ragErrorMessage_(error) {
   var code = errorCode_(error);
+  // v3 候選：英文模式給簡短英文說明，並保留錯誤碼方便主人排查。
+  if (typeof MESSAGE_LANGUAGE_ !== 'undefined' && MESSAGE_LANGUAGE_ === 'en') {
+    if (/^GEMINI_HTTP_(429|5\d\d)$/.test(code)) return 'The AI service is busy right now (' + code.replace('GEMINI_', '') + '). Please try again in a minute.';
+    if (/^ANSWER_/.test(code)) return 'The AI answer did not pass the source check this time. Please try again. This does not mean the resume lacks the information.';
+    return 'Sorry, I cannot read the resume or generate an answer right now (' + code + '). Please try again later, or contact the owner directly.';
+  }
   if (code === 'TOPIC_SOURCE_UNAVAILABLE') return '這個主題的來源對應暫時異常，請輸入「選單」重新選擇，或直接輸入問題。這不代表履歷缺少相關資料。';
   if (code === 'GEMINI_HTTP_429') {
     return 'Google Gemini API 的使用額度或呼叫頻率已達限制（HTTP 429），目前無法回答。這是 API Key 所屬 Google 專案的限制。請稍後再試，或請管理者到 Google AI Studio 查看配額。';
