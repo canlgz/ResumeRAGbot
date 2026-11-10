@@ -314,3 +314,42 @@ function testResumeAnswer() {
   console.log(answer);
   return answer;
 }
+
+/**
+ * 【v3 候選：每週提問洞察】在編輯器預覽本週與上週報告，不送出任何訊息。
+ */
+function previewWeeklyInsight() {
+  requireOwner_();
+  var cfg = config_(), now = new Date();
+  var report = { thisWeek: insightReport_(insightWeekKey_(now), cfg.name),
+    lastWeek: insightReport_(insightWeekKey_(new Date(now.getTime() - 7 * 86400000)), cfg.name) };
+  console.log(report.thisWeek);
+  console.log('上週回顧\n\n' + report.lastWeek);
+  return report;
+}
+
+/**
+ * 安裝每週一上午 9 點左右的洞察報告排程；有 OWNER_LINE_USER_ID 用 LINE，否則寄 Email 給自己。
+ * 重複執行只會保留一個排程。
+ */
+function installWeeklyInsight() {
+  requireOwner_();
+  removeWeeklyInsightTriggers_();
+  ScriptApp.newTrigger('sendWeeklyInsight_').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(9).create();
+  var result = { status: 'installed', channel: ownerLineUserId_() ? 'line' : 'email' };
+  console.log(JSON.stringify(result));
+  return result;
+}
+
+/** 移除每週洞察排程；已累積的匿名統計保留，最多 8 週後自動清除。 */
+function removeWeeklyInsight() {
+  requireOwner_();
+  removeWeeklyInsightTriggers_();
+  return { status: 'removed' };
+}
+
+function removeWeeklyInsightTriggers_() {
+  ScriptApp.getProjectTriggers().filter(function (trigger) {
+    return trigger.getHandlerFunction() === 'sendWeeklyInsight_';
+  }).forEach(function (trigger) { ScriptApp.deleteTrigger(trigger); });
+}

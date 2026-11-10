@@ -46,6 +46,7 @@ export function createGas(options = {}) {
       getText: () => nodes.map(n => n.getText()).join('\n'),
       setText(text) { changing(); nodes.splice(0, nodes.length, ...text.split('\n').map(paragraph)); changed(); return this; },
       appendParagraph(text) { changing(); const p = paragraph(text); nodes.push(p); changed(); return p; },
+      insertParagraph(i, text) { changing(); const p = paragraph(text); nodes.splice(i, 0, p); changed(); return p; },
       insertTable(i, values) { changing(); const t = table(values); nodes.splice(i, 0, t); changed(); return t; }
     };
     nodes.push(...text.split('\n').map(paragraph));
@@ -154,7 +155,12 @@ export function createGas(options = {}) {
     } },
     ScriptApp: { getScriptId: () => options.scriptId ?? 'test-script',
       getService: () => ({ getUrl: () => options.serviceUrl ?? null }),
-      getProjectTriggers: () => [], newTrigger: () => ({ timeBased: () => ({ everyHours: () => ({ create() {} }) }) }) }
+      WeekDay: { MONDAY: 'MONDAY' },
+      getProjectTriggers: () => state.triggers || [], deleteTrigger: trigger => { state.triggers = (state.triggers || []).filter(t => t !== trigger); },
+      newTrigger: handler => ({ timeBased: () => {
+        const add = schedule => ({ create() { (state.triggers = state.triggers || []).push({ getHandlerFunction: () => handler, schedule }); } });
+        return { everyHours: hours => add({ hours }), onWeekDay: day => ({ atHour: hour => add({ day, hour }) }) };
+      } }) }
   });
   const dir = new URL('../gas/', import.meta.url);
   const sources = options.sourceMode === 'bundle' ? [new URL('../dist/Code.gs', import.meta.url)]

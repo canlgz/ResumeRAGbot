@@ -116,8 +116,9 @@ function handleEvent_(event, cfg) {
   if (claim === 'duplicate') return 'duplicate';
   if (claim === 'busy') throw new Error('EVENT_BUSY');
   try {
-    MESSAGE_TOPICS_ = [];
-    var messages, conversation = null, social = null, dialogueIntent = 'neutral', startedAt = Date.now();
+    MESSAGE_TOPICS_ = []; MESSAGE_LANGUAGE_ = 'zh';
+    MESSAGE_IS_OWNER_ = !!ownerLineUserId_() && event.source.userId === ownerLineUserId_();
+    var messages, conversation = null, social = null, dialogueIntent = 'neutral', startedAt = Date.now(), switched = null, owner = null;
     var text = event.type === 'message' && event.message && event.message.type === 'text' ? event.message.text : '';
     if (event.type === 'postback') text = event.postback && event.postback.data || '';
     text = typeof text === 'string' ? text.trim() : '';
@@ -129,14 +130,34 @@ function handleEvent_(event, cfg) {
           prepared = { index: currentIndex, source: currentSource }; }
       } catch (_) { MESSAGE_TOPICS_ = []; }
     }
+    var questions = {
+      '個人介紹': '請根據公開履歷，用 30 秒介紹這位求職者的背景、專長與求職方向。',
+      '專業技能': '有哪些專業技能？請用履歷中的經驗或作品舉例。',
+      '工作經歷': '請整理主要工作經歷、職務和具體成果。',
+      '專案作品': '有哪些代表專案？請說明問題、本人負責內容、技術與成果。',
+      '聯絡方式': '履歷提供哪些公開聯絡方式與作品連結？請保留原文。'
+    };
+    // v3 候選：按鈕與固定指令沿用訪客的語言偏好；手打的問題依內容判斷中英文。
+    var isButton = event.type !== 'message' || Object.prototype.hasOwnProperty.call(questions, text) ||
+      /^(作品圖庫|作品集|選單|首頁|回首頁|履歷首頁|開始|使用說明|說明|隱私|清除對話|重新開始|menu|home|help|privacy|reset|gallery)$/i.test(text) ||
+      MESSAGE_TOPICS_.some(function (topic) { return topic.label === text; });
+    var language = MESSAGE_LANGUAGE_ = visitorLanguage_(text, event.source.userId, isButton);
     if (!cfg.enabled) messages = [textMessage_('履歷助理目前暫停服務，請稍後再試。')];
+    else if ((owner = ownerCommandMessages_(event, text, cfg))) messages = owner;
+    else if (event.type !== 'follow' && (switched = languageCommand_(text))) {
+      // 隨時切換：保存偏好後，直接用新語言重開首頁。
+      saveLanguagePreference_(event.source.userId, switched);
+      language = MESSAGE_LANGUAGE_ = switched;
+      messages = [textMessage_(ui_('switched')), welcomeMessage_(cfg, prepared)];
+    }
+    else if (event.type === 'follow') messages = [languagePickerMessage_(cfg)];
     else if ((messages = handleContact_(event, text, cfg, prepared))) { /* 聯繫與邀約不經 RAG。 */ }
     else if (/^(清除對話|重新開始|reset)$/i.test(text)) {
       clearConversation_(event.source.userId);
       CacheService.getScriptCache().remove(stickerHistoryKey_(event.source.userId));
-      messages = [textMessage_('短期對話記憶已清除，現在可以開始新的問題。')];
+      messages = [textMessage_(ui_('reset'))];
     }
-    else if (event.type === 'follow' || /^(選單|首頁|回首頁|履歷首頁|menu|home|開始|nav:home)$/i.test(text)) {
+    else if (/^(選單|首頁|回首頁|履歷首頁|menu|home|開始|nav:home)$/i.test(text)) {
       messages = [welcomeMessage_(cfg, prepared)];
     }
     else if (/^(使用說明|說明|help)$/i.test(text)) messages = [textMessage_(helpText_())];
@@ -148,39 +169,38 @@ function handleEvent_(event, cfg) {
     else if (event.type === 'message' && (social = socialDialogue_(text, cfg, prepared))) {
       messages = social.messages; dialogueIntent = social.intent;
     }
-    else if (!text) messages = [textMessage_('請輸入文字問題，或點選下方的履歷主題。')];
-    else if (text.length > 800) messages = [textMessage_('請將問題縮短至 800 字以內；你也可以分開詢問不同的經歷或專案。')];
+    else if (!text) messages = [textMessage_(ui_('askText'))];
+    else if (text.length > 800) messages = [textMessage_(ui_('tooLong'))];
     else {
-      var questions = {
-        '個人介紹': '請根據公開履歷，用 30 秒介紹這位求職者的背景、專長與求職方向。',
-        '專業技能': '有哪些專業技能？請用履歷中的經驗或作品舉例。',
-        '工作經歷': '請整理主要工作經歷、職務和具體成果。',
-        '專案作品': '有哪些代表專案？請說明問題、本人負責內容、技術與成果。',
-        '聯絡方式': '履歷提供哪些公開聯絡方式與作品連結？請保留原文。'
-      };
       startLoading_(event.source.userId, cfg);
       try {
         var selected = /^work:([a-f0-9]{64})$/.exec(text);
         var selectedTopic = /^topic:([a-f0-9]{16})$/.exec(text);
         var question = selected ? '請介紹這件作品的可見內容，以及履歷明確記載的本人角色。' : selectedTopic ? '請介紹所選主題的履歷內容。' : questions[text] || text;
         conversation = answerLineConversation_(question, cfg, selected ? '詢問選定作品' : text,
-          event.source.userId, selected && selected[1], /^(作品圖庫|作品集|gallery)$/i.test(text), selectedTopic && selectedTopic[1], prepared);
+          event.source.userId, selected && selected[1], /^(作品圖庫|作品集|gallery)$/i.test(text), selectedTopic && selectedTopic[1], prepared, language);
         messages = conversation.messages;
       }
       catch (error) {
         safeLog_(errorCode_(error));
         MESSAGE_TOPICS_ = [];
         messages = [textMessage_(ragErrorMessage_(error))];
+        conversation = { error: true, language: language };
       }
     }
     // 先有正確的內容／操作結果，再決定貼圖；錯誤、草稿及首頁不因裝飾多加一張。
-    if (conversation) dialogueIntent = dialogueStickerIntent_(text, conversation);
+    if (conversation && !conversation.error) dialogueIntent = dialogueStickerIntent_(text, conversation);
     else if (cfg.enabled && messages[0] && messages[0].type === 'flex' && (text === 'nav:contact' || contactIntent_(text))) dialogueIntent = 'contact';
     else if (messages[0] && /^邀約已存入/.test(messages[0].text || '')) dialogueIntent = 'invitation_received';
     var sticker = contextualSticker_(messages, dialogueIntent, event.source.userId);
     if (sticker) messages = messages.concat([sticker]);
     var result = lineReply_(event.replyToken, messages, cfg);
     if (result === 'replied' && sticker) rememberDialogueSticker_(dialogueIntent, event.source.userId);
+    // v3 候選：回覆成功後才累加匿名統計；只記狀態、語言、章節與交流目的，不記問題原文。
+    if (result === 'replied' && conversation && (conversation.error || ['answered', 'missing'].indexOf(conversation.answerStatus) >= 0)) {
+      recordInsight_({ status: conversation.error ? 'error' : conversation.answerStatus, language: conversation.language,
+        sections: conversation.sections, intent: conversation.dialogueIntent });
+    }
     if (result === 'replied' && conversation && conversation.fingerprint && conversation.request) {
       try { saveConversation_(event.source.userId, conversation.fingerprint, conversation.request, conversation.works, startedAt); }
       catch (error) { safeLog_(errorCode_(error)); }
